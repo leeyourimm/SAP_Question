@@ -1,6 +1,6 @@
 # SAP 서면(필기) 시험 문제집 · ABAP · RAP · SAPUI5
 
-웹페이지: https://leeyourimm.github.io/sap_question/
+웹페이지: https://leeyourimm.github.io/SAP_Question/
 
 SAP 개발자 서면 시험 대비 문제집입니다. 4개 단원에 통합 문제 185개가 있고, 문제마다 소문항 (1)(2)…와 정답·해설이 들어 있습니다.
 
