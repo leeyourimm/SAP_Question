@@ -292,7 +292,60 @@ details.aent>summary:hover{background:var(--accent-soft)}
 <td>OData V4 - UI</td>
 </tr>
 </tbody>
-</table></div><div class="steps"><details class="step" id="R-01-s1"><summary><span class="snum">1</span><span class="stt">활성 테이블 두 개 만들기</span><label class="done sdone" title="이 단계 끝냄"><input type="checkbox" data-id="R-01-s1"><span>끝냄</span></label></summary>
+</table>
+<blockquote>
+<p><strong>키 전략 한눈에 (왜 어떤 BO에는 UUID 키가 없나요?)</strong>
+RAP는 UUID 키를 <strong>필수로 요구하지 않습니다.</strong> 새로 만드는 관리형 BO에는 <code>sysuuid_x16</code> 키 + <code>numbering : managed</code>가 가장 간단하고 권장되는 방식이지만, 업무 번호를 키로 쓰는 것도 공식 방식입니다(SAP Flight 참조 시나리오의 <code>/DMO/I_Travel_M</code>도 TravelID가 키). 이 문제집은 번호 매기는 방식을 모두 연습하려고 BO마다 키를 다르게 잡았습니다.</p>
+<table>
+<thead>
+<tr>
+<th>문제</th>
+<th>활성 테이블 키</th>
+<th>번호 매기기</th>
+<th>이렇게 정한 이유</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R-01~<a class="plink" href="#R-04">R-04</a> Travel/Booking</td>
+<td>TravelID, BookingID (업무 번호)</td>
+<td>late numbering (<code>adjust_numbers</code>)</td>
+<td>저장 직전에 번호를 매기는 방식을 연습. 대신 draft 테이블에는 <code>DRAFTUUID</code>/<code>PARENTDRAFTUUID</code> 키가 필요(8단계)</td>
+</tr>
+<tr>
+<td>R-05~<a class="plink" href="#R-07">R-07</a> 레거시 주문</td>
+<td>OrderID, ItemNo</td>
+<td>레거시 Z 클래스가 매김 (unmanaged)</td>
+<td>이미 있는 레거시 테이블 키를 바꿀 수 없다는 상황</td>
+</tr>
+<tr>
+<td>R-09 Singleton 설정</td>
+<td>AgencyID</td>
+<td>사용자가 입력 (external)</td>
+<td>설정 데이터는 업무 키 자체가 식별자</td>
+</tr>
+<tr>
+<td>R-11 조직도(계층)</td>
+<td>OrgID, UnitID</td>
+<td>early numbering (<code>earlynumbering_create/cba</code>)</td>
+<td>생성 즉시 번호를 매기는 방식을 연습</td>
+</tr>
+<tr>
+<td>R-18 생성기 실습</td>
+<td>TaskID</td>
+<td>사용자가 입력</td>
+<td>RAP100 생성기 결과와 비교하려고 같은 모양을 씀</td>
+</tr>
+<tr>
+<td>R-10 Supplier, <a class="plink" href="#R-11">R-11</a> Project, <a class="plink" href="#R-14">R-14</a> Quote, <a class="plink" href="#R-15">R-15</a> Loan, <a class="plink" href="#R-16">R-16</a> Ticket</td>
+<td><code>..._uuid</code> (<code>sysuuid_x16</code>)</td>
+<td><strong>managed numbering</strong></td>
+<td>권장 방식. 사람이 읽는 번호(예: SupplierID)는 키가 아닌 필드로 두고 결정(determination)으로 채움</td>
+</tr>
+</tbody>
+</table>
+<p>컨트롤·스위치·로그용 보조 테이블(<code>zrap_ctrl_###</code>, <code>zrap_loansw_###</code>, <code>zrap_pcat_###</code> 등)은 BO가 아니라서 키 방식과 관계없습니다.</p>
+</blockquote></div><div class="steps"><details class="step" id="R-01-s1"><summary><span class="snum">1</span><span class="stt">활성 테이블 두 개 만들기</span><label class="done sdone" title="이 단계 끝냄"><input type="checkbox" data-id="R-01-s1"><span>끝냄</span></label></summary>
 <div class="sbody"><p>요구사항</p>
 <ol>
 <li>패키지 <code>ZRAP_###</code>에서 <strong>New &gt; Other ABAP Repository Object &gt; Database Table</strong>로 <code>ZRAP_ATRAV_###</code>(설명: <code>Travel active data</code>)를 만드세요.</li>

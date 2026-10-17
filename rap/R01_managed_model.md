@@ -37,6 +37,20 @@
 | 15 | 서비스 정의 | `ZRAP_UI_TRAVEL_###` | 노출할 엔터티 목록 |
 | 16 | 서비스 바인딩 | `ZRAP_UI_TRAVEL_O4_###` | OData V4 - UI |
 
+> **키 전략 한눈에 (왜 어떤 BO에는 UUID 키가 없나요?)**
+> RAP는 UUID 키를 **필수로 요구하지 않습니다.** 새로 만드는 관리형 BO에는 `sysuuid_x16` 키 + `numbering : managed`가 가장 간단하고 권장되는 방식이지만, 업무 번호를 키로 쓰는 것도 공식 방식입니다(SAP Flight 참조 시나리오의 `/DMO/I_Travel_M`도 TravelID가 키). 이 문제집은 번호 매기는 방식을 모두 연습하려고 BO마다 키를 다르게 잡았습니다.
+>
+> | 문제 | 활성 테이블 키 | 번호 매기기 | 이렇게 정한 이유 |
+> |---|---|---|---|
+> | R-01~R-04 Travel/Booking | TravelID, BookingID (업무 번호) | late numbering (`adjust_numbers`) | 저장 직전에 번호를 매기는 방식을 연습. 대신 draft 테이블에는 `DRAFTUUID`/`PARENTDRAFTUUID` 키가 필요(8단계) |
+> | R-05~R-07 레거시 주문 | OrderID, ItemNo | 레거시 Z 클래스가 매김 (unmanaged) | 이미 있는 레거시 테이블 키를 바꿀 수 없다는 상황 |
+> | R-09 Singleton 설정 | AgencyID | 사용자가 입력 (external) | 설정 데이터는 업무 키 자체가 식별자 |
+> | R-11 조직도(계층) | OrgID, UnitID | early numbering (`earlynumbering_create/cba`) | 생성 즉시 번호를 매기는 방식을 연습 |
+> | R-18 생성기 실습 | TaskID | 사용자가 입력 | RAP100 생성기 결과와 비교하려고 같은 모양을 씀 |
+> | R-10 Supplier, R-11 Project, R-14 Quote, R-15 Loan, R-16 Ticket | `..._uuid` (`sysuuid_x16`) | **managed numbering** | 권장 방식. 사람이 읽는 번호(예: SupplierID)는 키가 아닌 필드로 두고 결정(determination)으로 채움 |
+>
+> 컨트롤·스위치·로그용 보조 테이블(`zrap_ctrl_###`, `zrap_loansw_###`, `zrap_pcat_###` 등)은 BO가 아니라서 키 방식과 관계없습니다.
+
 #### 1단계. 활성 테이블 두 개 만들기
 
 요구사항
