@@ -1259,7 +1259,7 @@ define abstract entity ZRAP_A_TRAVEL_STAT_###
 2. `deductDiscount`: 파라미터 `ZRAP_A_DISCOUNT_###`, 결과 `[1] $self`, `features : instance`. `BookingFee`를 `discount_percent`만큼 깎습니다. 0 또는 100 초과면 메시지 008 오류(`%op-%action-deductDiscount` 표시)로 실패.
    - 기본값 함수 `GetDefaultsFordeductDiscount`: 총액이 5000 이상이면 20, 아니면 10을 팝업 기본값으로 제안.
 3. `addServiceFee`: **repeatable** 액션, 결과 `[1] $self`. 실행할 때마다 BookingFee에 10을 더합니다. 한 요청에서 같은 Travel에 두 번 실행하면 20이 더해져야 합니다.
-4. 동적 기능 제어 `get_instance_features`: 승인(A)이면 accept·deductDiscount·update·delete·Edit 비활성, 거절(X)이면 reject와 Booking 추가(`%assoc-_Booking`) 비활성. (BDEF의 `update`, `delete`, `association _Booking { create … }`에도 `features : instance`를 붙입니다. Edit은 10단계에서 붙입니다.)
+4. 동적 기능 제어 `get_instance_features`: 승인(A)이면 accept·deductDiscount·update·delete·Edit 비활성, 거절(X)이면 reject와 Booking 추가(`%assoc-_Booking`) 비활성. (BDEF의 `update`, `delete`, `association _Booking { create … }`, 그리고 draft 액션 `Edit`에도 `features : instance`를 붙입니다. `Edit`에 붙이지 않으면 `%action-Edit` 컴포넌트가 없어서 "No component exists with the name EDIT" 오류가 납니다.)
 5. `result [1] $self`인 액션은 결과를 반드시 **MODIFY 후 다시 READ**해서 채우세요.
 
 **확인**
@@ -1276,6 +1276,9 @@ BDEF (Travel) — 표준 작업 줄을 아래로 교체하고 액션 추가:
   update ( features : instance );                                 // 상태에 따라 수정 가능/불가
   delete ( features : instance );
   association _Booking { create ( features : instance ); with draft; }
+
+  // 기존 draft action Edit; 줄을 이렇게 교체 → get_instance_features 결과에 %action-Edit 이 생김
+  draft action ( features : instance ) Edit;
 
   // result [1] $self: 결과는 같은 엔터티 인스턴스 1건 → Fiori가 화면을 그 값으로 갱신
   action ( features : instance ) acceptTravel result [1] $self;
@@ -2021,7 +2024,7 @@ BDEF (Booking):
 요구사항
 
 1. Draft 액션 선언을 다음처럼 바꾸세요.
-   - `Edit`에 `features : instance` → 승인된 Travel은 Edit 불가(6단계 `get_instance_features`에 이미 `%action-Edit` 있음).
+   - `Edit`의 `features : instance`는 6단계에서 이미 붙였습니다(승인된 Travel은 Edit 불가). 여기서는 그대로 둡니다.
    - `Activate optimized`, `Discard`는 그대로.
    - `Resume with additional implementation` → 잠금이 만료된 draft를 다시 편집할 때, 그 사이 **활성 Travel이 승인(A)되었으면** 실패시키고 메시지 015를 냅니다.
    - `Prepare`는 4단계에서 채운 그대로.
