@@ -1,13 +1,13 @@
 # RAP 실습 문제집 (BTP ABAP Cloud)
 
-정리일: 2026-10-17. RAP 실습 문제만 남기고 전면 개편했습니다. BAPI는 쓰지 않고, SAP 공식 샘플(RAP100/110/400/610, ABAP Flight Reference Scenario, ABAP cheat sheets)에 나오는 RAP 기능을 13개 큰 문제로 모두 직접 만들어 보게 했습니다.
+정리일: 2026-10-17. RAP 실습 문제만 남기고 전면 개편했습니다. BAPI는 쓰지 않고, SAP 공식 샘플(RAP100/110/400/610, ABAP Flight Reference Scenario, ABAP cheat sheets)에 나오는 RAP 기능을 18개 큰 문제로 모두 직접 만들어 보게 했습니다.
 
 **웹페이지:** https://leeyourimm.github.io/SAP_Question/ (원본 HTML: [index.html](index.html))
 - 탭 두 개: **RAP 실습**, **어노테이션 설명**
 - 문제마다 단계(섹션)를 나눠 한 문제 안에서 처음부터 끝까지 만들 수 있습니다. 단계마다 요구사항, 직접 추가할 어노테이션(이름과 목적만), 확인 방법, 정답·해설이 있습니다.
 - 정답 코드 안의 어노테이션을 누르면 어노테이션 설명 탭으로 이동합니다. 단계별 "끝냄" 표시와 메모는 브라우저에만 저장됩니다.
 
-## 문제 구성 (13문제 · 142단계)
+## 문제 구성 (18문제 · 200단계)
 
 | 파일 | 단원 | 문제 |
 |---|---|---|
@@ -18,6 +18,11 @@
 | [rap/R08_R09_query_singleton.md](rap/R08_R09_query_singleton.md) | 3. 특수 BO 패턴 | R-08 Custom Entity·Unmanaged Query / R-09 Singleton 설정 앱 |
 | [rap/R10_R11_extensibility_xbo.md](rap/R10_R11_extensibility_xbo.md) | 〃 | R-10 확장 가능한 BO와 BDEF 확장 / R-11 Cross-BO 연관·협업 Draft·계층(Tree)·추천값 |
 | [rap/R12_R13_eml_test.md](rap/R12_R13_eml_test.md) | 4. EML과 테스트 | R-12 EML 전부 / R-13 ABAP Unit·테스트 더블·OData 수준 테스트 |
+| [rap/R14_signatures.md](rap/R14_signatures.md) | 5. 고급·특수 기능 보충 | R-14 BDEF 고급 문법: deep 파라미터/결과, selective 결과, 추상 BDEF(hierarchy·control·mandatory:execute), 팩토리 [0..*], static 액션, save action, 삭제 시 검증·결정, always, notrigger, suppress, internal 연산, 대체 키·key function, 매핑 |
+| [rap/R15_lock_auth_save_adv.md](rap/R15_lock_auth_save_adv.md) | 〃 | R-15 lock master unmanaged, 액션별 권한, 자식 권한 마스터, auxiliary class, BDEF friends, RAP 변경 문서, CL_ABAP_BEHAVIOR_SAVER_FAILED, CDS 테이블 엔티티, preserve_changes |
+| [rap/R16_events_sideeffects_adv.md](rap/R16_events_sideeffects_adv.md) | 〃 | R-16 자식·deep·파생 이벤트, 로컬 소비자 재시도, 이벤트 기반·전역·$self·entity·permissions 사이드 이펙트, use event, 이벤트 바인딩 |
+| [rap/R17_projection_eml_adv.md](rap/R17_projection_eml_adv.md) | 〃 | R-17 다중 프로젝션, 프로젝션 전용 액션·함수, augment·precheck, managed instance filter, FORWARDING PRIVILEGED, WITH CHANGES, get_current_phase, 파생 타입(RTTS), 계약 검사 |
+| [rap/R18_tools_integration.md](rap/R18_tools_integration.md) | 〃 | R-18 ADT 생성기, Service Consumption Model + Custom Entity, 애플리케이션 로그, bgPF, 애플리케이션 잡, BAS 배포·FLP |
 | [rap/annotations.md](rap/annotations.md) | 어노테이션 설명 탭 | 97개 항목, 하고 싶은 일 → 어노테이션 표 |
 
 > 실제 SAP 시스템에서 실행해 검증하지는 못했습니다. 정답 안에 "(실제 시스템에서 확인 필요)"라고 적힌 곳은 공식 샘플에서 문법을 확인하지 못한 부분이니 활성화하면서 확인하세요.
