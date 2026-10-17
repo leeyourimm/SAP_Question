@@ -447,8 +447,9 @@ BDEF에서 `zbp_rap_r_booking_###`에 커서를 두고 Ctrl+1 → **Create behav
 2. Booking
    - `setInitialBookingValues` **on modify { create; }**: 비어 있으면 `BookingDate = 오늘`, `CustomerID = 부모 Travel의 CustomerID`, `BookingStatus = 'N'`.
    - `calculateTotalPrice` **on modify { create; field FlightPrice, CurrencyCode; }**: 부모 Travel의 `reCalcTotalPrice`를 실행합니다.
-3. 모든 read는 `IN LOCAL MODE` + `FIELDS ( … )`, 변경은 `%control` 또는 `UPDATE FIELDS ( … )`로 바뀐 필드만 표시하세요.
-4. 트리거 조건 `{ create; update; delete; field … }`의 차이와 결정 실행 순서에 대해 해설에 적으세요.
+3. 'O', 'A', 'X', 'N', 'EUR' 같은 고정값은 코드에 바로 쓰지 말고 `lhc_travel`의 **PRIVATE SECTION 맨 위에 상수(CONSTANTS)로 먼저 선언**하세요. 상태 묶음 `travel_status`(open/accepted/rejected), `booking_status`(new), `c_default_currency`, `c_service_fee`를 둡니다. 3단계 이후 단계들도 이 상수를 씁니다. Booking 핸들러(`lhc_booking`)에서도 쓰려면 그 클래스에도 따로 선언하세요.
+4. 모든 read는 `IN LOCAL MODE` + `FIELDS ( … )`, 변경은 `%control` 또는 `UPDATE FIELDS ( … )`로 바뀐 필드만 표시하세요.
+5. 트리거 조건 `{ create; update; delete; field … }`의 차이와 결정 실행 순서에 대해 해설에 적으세요.
 
 **확인**
 
