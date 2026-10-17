@@ -521,128 +521,147 @@ BDEF 추가 (Booking):
 
 ```abap
   METHOD setInitialValues.
+    " 방금 생성된 Travel들의 현재 값을 읽어 옴 (keys = 프레임워크가 넘겨준 '생성된 인스턴스 키 목록')
+    " IN LOCAL MODE = 권한·기능 제어 검사 없이 BO 내부에서 읽기
     READ ENTITIES OF zrap_r_travel_### IN LOCAL MODE
       ENTITY Travel
-        FIELDS ( BeginDate EndDate CurrencyCode OverallStatus )
-        WITH CORRESPONDING #( keys )
-      RESULT DATA(travels).
+        FIELDS ( BeginDate EndDate CurrencyCode OverallStatus )   " 이 4개 필드만 읽음
+        WITH CORRESPONDING #( keys )                              " keys를 READ용 키 형식으로 변환
+      RESULT DATA(travels).                                       " 읽은 결과가 travels 테이블에 담김
 
-    " 이미 다 채워진 인스턴스는 건드리지 않음 (factory action 등에서 값이 온 경우)
+    " 4개 필드가 이미 다 채워진 Travel은 할 일이 없으니 목록에서 뺌
+    " (팩토리 액션·EML로 값을 넣어서 만든 경우)
     DELETE travels WHERE BeginDate     IS NOT INITIAL
                      AND EndDate       IS NOT INITIAL
                      AND CurrencyCode  IS NOT INITIAL
                      AND OverallStatus IS NOT INITIAL.
-    CHECK travels IS NOT INITIAL.
+    CHECK travels IS NOT INITIAL.          " 남은 게 없으면 메서드 종료
 
-    DATA(today) = cl_abap_context_info=>get_system_date( ).
-    DATA travels_upd TYPE TABLE FOR UPDATE zrap_r_travel_###\\Travel.
+    DATA(today) = cl_abap_context_info=>get_system_date( ).   " 오늘 날짜 (클라우드에서는 sy-datum 대신 이걸 씀)
+    DATA travels_upd TYPE TABLE FOR UPDATE zrap_r_travel_###\\Travel.   " UPDATE에 넘길 행을 모을 테이블 (BDEF 파생 타입)
 
     LOOP AT travels INTO DATA(travel).
+      " 업데이트할 행 하나를 만들고 키(%tky)만 먼저 채움. <upd>로 그 행을 직접 가리킴
       APPEND VALUE #( %tky = travel-%tky ) TO travels_upd ASSIGNING FIELD-SYMBOL(<upd>).
-      IF travel-BeginDate IS INITIAL.
-        <upd>-BeginDate          = today + 1.
-        <upd>-%control-BeginDate = if_abap_behv=>mk-on.
+      IF travel-BeginDate IS INITIAL.                         " 시작일이 비어 있으면
+        <upd>-BeginDate          = today + 1.                 "   내일로 채우고
+        <upd>-%control-BeginDate = if_abap_behv=>mk-on.       "   '이 필드를 바꾼다'고 표시 (표시 안 하면 무시됨)
       ENDIF.
-      IF travel-EndDate IS INITIAL.
+      IF travel-EndDate IS INITIAL.                           " 종료일이 비어 있으면 15일 뒤로
         <upd>-EndDate          = today + 15.
         <upd>-%control-EndDate = if_abap_behv=>mk-on.
       ENDIF.
-      IF travel-CurrencyCode IS INITIAL.
+      IF travel-CurrencyCode IS INITIAL.                      " 통화가 비어 있으면 상수 'EUR'로
         <upd>-CurrencyCode          = c_default_currency.
         <upd>-%control-CurrencyCode = if_abap_behv=>mk-on.
       ENDIF.
-      IF travel-OverallStatus IS INITIAL.
+      IF travel-OverallStatus IS INITIAL.                     " 상태가 비어 있으면 'O'(Open)로
         <upd>-OverallStatus          = travel_status-open.
         <upd>-%control-OverallStatus = if_abap_behv=>mk-on.
       ENDIF.
     ENDLOOP.
 
-    " %control로 표시한 필드만 바뀜 (UPDATE FROM)
+    " 모은 값을 BO에 실제로 반영. %control이 켜진 필드만 바뀌므로 사용자가 넣은 값은 안전함
     MODIFY ENTITIES OF zrap_r_travel_### IN LOCAL MODE
       ENTITY Travel
         UPDATE FROM travels_upd.
   ENDMETHOD.
 
   METHOD calculateTotalPrice.
+    " 계산은 여기서 하지 않고, 바뀐 Travel들에 대해 내부 액션 reCalcTotalPrice를 실행만 함
+    " (Booking 쪽 결정도 같은 액션을 부르므로 계산 로직이 한 곳에만 있게 됨)
     MODIFY ENTITIES OF zrap_r_travel_### IN LOCAL MODE
       ENTITY Travel
-        EXECUTE reCalcTotalPrice
-        FROM CORRESPONDING #( keys ).
+        EXECUTE reCalcTotalPrice             " 액션 실행
+        FROM CORRESPONDING #( keys ).        " 대상 = 이 결정을 일으킨 Travel들
   ENDMETHOD.
 
   METHOD setDefaultDescription.
+    " 저장 직전, 새 Travel들의 설명·고객번호·시작일을 읽음
     READ ENTITIES OF zrap_r_travel_### IN LOCAL MODE
       ENTITY Travel
         FIELDS ( Description CustomerID BeginDate )
         WITH CORRESPONDING #( keys )
       RESULT DATA(travels).
 
-    DELETE travels WHERE Description IS NOT INITIAL.
-    CHECK travels IS NOT INITIAL.
+    DELETE travels WHERE Description IS NOT INITIAL.   " 사용자가 설명을 쓴 Travel은 제외
+    CHECK travels IS NOT INITIAL.                      " 남은 게 없으면 종료
 
+    " 남은 Travel마다 설명을 만들어 넣음. UPDATE FIELDS ( … )로 Description만 바꾼다고 지정
     MODIFY ENTITIES OF zrap_r_travel_### IN LOCAL MODE
       ENTITY Travel
         UPDATE FIELDS ( Description )
-        WITH VALUE #( FOR travel IN travels
+        WITH VALUE #( FOR travel IN travels                 " travels 한 줄마다 업데이트 행 하나
                       ( %tky        = travel-%tky
+                        " 예: 'Trip of customer 42 from 2026-10-18'
+                        " ALPHA = OUT: 앞자리 0 제거, DATE = ISO: 날짜를 YYYY-MM-DD로
                         Description = |Trip of customer { travel-CustomerID ALPHA = OUT } from { travel-BeginDate DATE = ISO }| ) ).
   ENDMETHOD.
 
   METHOD reCalcTotalPrice.
+    " 통화별 금액을 모을 작은 표 (금액, 통화)
     TYPES: BEGIN OF ty_amount_per_currency,
              amount        TYPE /dmo/total_price,
              currency_code TYPE /dmo/currency_code,
            END OF ty_amount_per_currency.
     DATA amounts_per_currency TYPE STANDARD TABLE OF ty_amount_per_currency.
 
+    " 1) 대상 Travel들의 예약 수수료와 통화를 읽음
     READ ENTITIES OF zrap_r_travel_### IN LOCAL MODE
       ENTITY Travel
         FIELDS ( BookingFee CurrencyCode )
         WITH CORRESPONDING #( keys )
       RESULT DATA(travels).
 
-    DELETE travels WHERE CurrencyCode IS INITIAL.
+    DELETE travels WHERE CurrencyCode IS INITIAL.   " 통화가 없으면 합계를 낼 기준이 없으니 제외
     CHECK travels IS NOT INITIAL.
 
+    " 2) 그 Travel들에 딸린 Booking 전부의 항공권 가격과 통화를 읽음 (BY \_Booking = 연관 따라 자식 읽기)
     READ ENTITIES OF zrap_r_travel_### IN LOCAL MODE
       ENTITY Travel BY \_Booking
         FIELDS ( FlightPrice CurrencyCode )
         WITH CORRESPONDING #( travels )
-      LINK DATA(booking_links)
-      RESULT DATA(bookings).
+      LINK DATA(booking_links)        " 어느 Travel(source)에 어느 Booking(target)이 붙어 있는지 짝 목록
+      RESULT DATA(bookings).          " Booking 데이터 자체
 
-    DATA(today) = cl_abap_context_info=>get_system_date( ).
+    DATA(today) = cl_abap_context_info=>get_system_date( ).   " 환율 기준일
 
-    LOOP AT travels ASSIGNING FIELD-SYMBOL(<travel>).
+    LOOP AT travels ASSIGNING FIELD-SYMBOL(<travel>).          " Travel 하나씩 계산 (<travel>을 고치면 travels가 바로 바뀜)
+      " 3) 먼저 예약 수수료를 Travel 통화로 넣어 둠
       amounts_per_currency = VALUE #( ( amount        = <travel>-BookingFee
                                         currency_code = <travel>-CurrencyCode ) ).
 
+      " 4) 이 Travel에 붙은 Booking만 골라서 가격을 통화별로 더함
       LOOP AT booking_links INTO DATA(booking_link) USING KEY id WHERE source-%tky = <travel>-%tky.
-        DATA(booking) = bookings[ KEY id %tky = booking_link-target-%tky ].
+        DATA(booking) = bookings[ KEY id %tky = booking_link-target-%tky ].   " 짝 목록의 target 키로 Booking 찾기
+        " COLLECT: 같은 통화 줄이 있으면 금액을 더하고, 없으면 새 줄 추가
         COLLECT VALUE ty_amount_per_currency( amount        = booking-FlightPrice
                                               currency_code = booking-CurrencyCode ) INTO amounts_per_currency.
       ENDLOOP.
 
-      DELETE amounts_per_currency WHERE currency_code IS INITIAL.
+      DELETE amounts_per_currency WHERE currency_code IS INITIAL.   " 통화 없는 금액은 환산할 수 없으니 버림
 
-      CLEAR <travel>-TotalPrice.
+      " 5) 통화별 금액을 Travel 통화로 맞춰 하나로 합침
+      CLEAR <travel>-TotalPrice.                                     " 0부터 다시 계산
       LOOP AT amounts_per_currency INTO DATA(amount_per_currency).
         IF amount_per_currency-currency_code = <travel>-CurrencyCode.
-          <travel>-TotalPrice += amount_per_currency-amount.
+          <travel>-TotalPrice += amount_per_currency-amount.         " 같은 통화면 그대로 더함
         ELSE.
+          " 다른 통화면 SAP 데모 환율 함수로 Travel 통화로 바꾼 뒤 더함
           /dmo/cl_flight_amdp=>convert_currency(
             EXPORTING
-              iv_amount               = amount_per_currency-amount
-              iv_currency_code_source = amount_per_currency-currency_code
-              iv_currency_code_target = <travel>-CurrencyCode
-              iv_exchange_rate_date   = today
+              iv_amount               = amount_per_currency-amount        " 바꿀 금액
+              iv_currency_code_source = amount_per_currency-currency_code " 원래 통화
+              iv_currency_code_target = <travel>-CurrencyCode             " 바꿀 통화
+              iv_exchange_rate_date   = today                             " 환율 기준일
             IMPORTING
-              ev_amount               = DATA(converted_amount) ).
+              ev_amount               = DATA(converted_amount) ).         " 바뀐 금액
           <travel>-TotalPrice += converted_amount.
         ENDIF.
       ENDLOOP.
     ENDLOOP.
 
+    " 6) 계산한 총액을 BO에 반영 (TotalPrice 필드만 바꿈)
     MODIFY ENTITIES OF zrap_r_travel_### IN LOCAL MODE
       ENTITY Travel
         UPDATE FIELDS ( TotalPrice )
