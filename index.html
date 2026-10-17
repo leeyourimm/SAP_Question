@@ -32,6 +32,7 @@
   --k:#d29bf0; --s:#f0a36e; --c:#7f8e88; --n:#82b8ef; --m:#5fd1bd; color-scheme:dark}
 *{box-sizing:border-box}
 body{background:var(--bg);color:var(--fg);font:15px/1.65 var(--f-ui);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+[hidden]{display:none!important}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
 .wrap{max-width:1200px;margin:0 auto;padding-block:16px 60px;display:grid;grid-template-columns:240px minmax(0,1fr);gap:28px}
 .top{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:end;gap:10px 24px}
