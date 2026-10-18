@@ -1390,7 +1390,7 @@ draft table zrap_dtrav_### query ZRAP_R_TRAVELDRAFT_###     // draft 데이터�
 
 다른 개발자나 외부 시스템이 쓰는 **안정된 계약(API)** 을 따로 만듭니다. UI용 C 계층과 분리하는 것이 핵심입니다.
 
-1. 인터페이스 프로젝션 뷰 `ZRAP_I_TRAVEL_###`(root), `ZRAP_I_BOOKING_###`를 R 뷰 위에 만드세요. provider contract는 인터페이스용, 필드는 R 뷰 전부, 연관은 `_Booking`(→ I Booking), `_Travel`(→ I Travel)만 재지정합니다. UI 어노테이션은 넣지 않습니다.
+1. 인터페이스 프로젝션 뷰 `ZRAP_I_TRAVEL_###`(root), `ZRAP_I_BOOKING_###`를 R 뷰 위에 만드세요. provider contract는 인터페이스용으로 **루트 `ZRAP_I_TRAVEL_###`에만** 쓰고(자식 `ZRAP_I_BOOKING_###`에는 쓰지 않음), 필드는 R 뷰 전부, 연관은 `_Booking`(→ I Booking), `_Travel`(→ I Travel)만 재지정합니다. UI 어노테이션은 넣지 않습니다.
 2. 두 뷰의 접근 제어는 R 뷰 조건 상속으로 만드세요(`ZRAP_I_TRAVEL_###`, `ZRAP_I_BOOKING_###`).
 3. 인터페이스 BDEF `ZRAP_I_TRAVEL_###`를 만드세요(뷰에서 우클릭 → New Behavior Definition, 구현 유형 interface).
    - draft와 side effects를 사용하고, privileged 호출을 허용합니다(10단계에서 사용). privileged 허용은 R BDEF에 privileged mode가 켜져 있어야 활성화되므로, 10단계 1번의 R BDEF 머리 세 줄을 먼저 추가하세요.
@@ -1573,6 +1573,7 @@ define service ZRAP_API_TRAVEL_### {
 - `GetDefaultsForCreate`(R-02의 create 기본값 함수)는 `use create;`로 함께 노출되는지, 따로 적어야 하는지 확인하지 못했습니다. 활성화 경고가 나면 ADT 제안을 따르세요(실제 시스템에서 확인 필요).
 
 자주 나는 오류
+- 서비스 바인딩 생성 시 `Prov. contract "transactional_interface" must not be used (Entity: ZRAP_I_BOOKING_###)`: 자식 뷰에 provider contract를 넣어서입니다. 자식 뷰에서 그 줄을 지우고 다시 활성화하세요. provider contract는 루트 프로젝션 뷰에만 씁니다.
 - I 뷰 활성화 시 `_Booking` 재지정 대상이 아직 없다는 오류: 두 뷰를 함께 선택해 한꺼번에 활성화(Ctrl+Shift+F3)하세요.
 - 인터페이스 BDEF의 `with privileged mode;` 줄에 `"ZRAP_R_TRAVEL_###" is not defined with "with privileged mode"` 오류: R BDEF에 privileged mode가 아직 없어서입니다. 10단계 1번(R BDEF 머리의 `with privileged mode disabling …`, `define authorization context …`, `define own authorization context by privileged mode;`)을 먼저 하고 R BDEF → 인터페이스 BDEF 순서로 활성화하세요. 또는 이 줄을 주석 처리했다가 10단계에서 푸세요.
 
