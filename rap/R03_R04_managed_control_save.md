@@ -165,10 +165,15 @@ ENDCLASS.
     "--- R-03: new attribute -------------------------------------
     DATA mv_country_code TYPE land1 READ-ONLY.
 
-    "--- constructor: add one OPTIONAL parameter at the end -------
-    "    country_code TYPE land1 OPTIONAL
-    "--- constructor implementation: add one line -----------------
-    "    mv_country_code = country_code.
+    "--- 생성자 선언(METHODS constructor IMPORTING …)의 맨 끝을 이렇게 바꿈 ---
+    "        status        TYPE /dmo/booking_status OPTIONAL      ← 마침표를 지우고
+    "        country_code  TYPE land1 OPTIONAL.                   ← 이 줄 추가
+```
+
+생성자 구현(`METHOD constructor`)에도 `mv_status = status.` 아래에 한 줄을 추가하세요. 이걸 빠뜨리면 행동 풀에서 `country_code = …`를 넘길 때 "The formal parameter COUNTRY_CODE does not exist" 오류가 납니다.
+
+```abap
+    mv_country_code = country_code.
 ```
 
 해설
