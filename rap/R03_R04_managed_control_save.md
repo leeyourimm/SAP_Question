@@ -29,8 +29,9 @@
 | 8 | 데이터 정의 | `ZRAP_R_TRAVELDRAFT_###` | Travel draft 쿼리 뷰 |
 | 9 | 데이터 정의 2개 | `ZRAP_I_TRAVEL_###`, `ZRAP_I_BOOKING_###` | 인터페이스 프로젝션 |
 | 10 | BDEF | `ZRAP_I_TRAVEL_###` | 인터페이스 BDEF |
-| 11 | 서비스 정의 / 바인딩 | `ZRAP_API_TRAVEL_###` / `ZRAP_API_TRAVEL_O4_###` | OData V4 Web API |
-| 12 | 클래스(콘솔) | `ZCL_RAP_R03_EML_###` | 기능 제어·권한·privileged EML 확인 |
+| 11 | 데이터 정의 2개 + BDEF | `ZRAP_W_TRAVEL_###`, `ZRAP_W_BOOKING_###` | Web API용 프로젝션(I 뷰 위, `transactional_query`) |
+| 12 | 서비스 정의 / 바인딩 | `ZRAP_API_TRAVEL_###` / `ZRAP_API_TRAVEL_O4_###` | OData V4 Web API |
+| 13 | 클래스(콘솔) | `ZCL_RAP_R03_EML_###` | 기능 제어·권한·privileged EML 확인 |
 
 #### 1단계. 실습용 스위치 테이블과 메시지 준비
 
@@ -1396,8 +1397,9 @@ draft table zrap_dtrav_### query ZRAP_R_TRAVELDRAFT_###     // draft 데이터�
    - draft와 side effects를 사용하고, privileged 호출을 허용합니다(10단계에서 사용). privileged 허용은 R BDEF에 privileged mode가 켜져 있어야 활성화되므로, 10단계 1번의 R BDEF 머리 세 줄을 먼저 추가하세요.
    - Travel: ETag 사용, CUD, 액션 `acceptTravel`, `rejectTravel`, `deductDiscount`, `addServiceFee`, `copyTravel`, `createTravel`, `checkDates`, 함수 `GetDefaultsFordeductDiscount`, `getOpenTravelCount`, draft 액션 5개, Booking 생성. `sendReminder`는 API에 내보내지 않습니다.
    - Booking: ETag, update, delete, 함수 `getDaysToFlight`, `_Travel` 연관.
-4. 서비스 정의 `ZRAP_API_TRAVEL_###`에 I 뷰 두 개를 `Travel`, `Booking`으로 노출하고, 서비스 바인딩 `ZRAP_API_TRAVEL_O4_###`를 **OData V4 - Web API** 유형으로 만들어 Publish하세요.
-5. API 상태(release contract C1) 개념을 정리하세요. ADT에서 I 뷰나 BDEF를 열고 Properties → API State 탭을 확인합니다.
+4. `transactional_interface` 뷰는 서비스 정의에 바로 노출할 수 없습니다. I 뷰 위에 Web API용 프로젝션 뷰 `ZRAP_W_TRAVEL_###`(root, provider contract `transactional_query`), `ZRAP_W_BOOKING_###`와 프로젝션 BDEF `ZRAP_W_TRAVEL_###`(I BDEF와 같은 연산을 `use`)를 만드세요.
+5. 서비스 정의 `ZRAP_API_TRAVEL_###`에 W 뷰 두 개를 `Travel`, `Booking`으로 노출하고, 서비스 바인딩 `ZRAP_API_TRAVEL_O4_###`를 **OData V4 - Web API** 유형으로 만들어 Publish하세요.
+6. API 상태(release contract C1) 개념을 정리하세요. ADT에서 I 뷰나 BDEF를 열고 Properties → API State 탭을 확인합니다.
 
 **직접 추가할 어노테이션**
 - `@AccessControl.authorizationCheck` — 인터페이스 뷰도 DCL 검사 대상
@@ -1552,20 +1554,116 @@ use etag
 }
 ```
 
+Web API용 프로젝션 뷰(I 뷰 위):
+
+```cds
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Travel - Web API projection'
+@Metadata.ignorePropagatedAnnotations: true
+define root view entity ZRAP_W_TRAVEL_###
+  provider contract transactional_query                        // 서비스 노출용 계약 (I 뷰는 노출 불가)
+  as projection on ZRAP_I_TRAVEL_###                           // I 뷰 위에 올림
+{
+  key TravelID,
+      AgencyID,
+      CustomerID,
+      BeginDate,
+      EndDate,
+      @Semantics.amount.currencyCode: 'CurrencyCode'
+      BookingFee,
+      @Semantics.amount.currencyCode: 'CurrencyCode'
+      TotalPrice,
+      CurrencyCode,
+      Description,
+      OverallStatus,
+      LocalLastChangedAt,
+      LastChangedAt,
+      _Booking : redirected to composition child ZRAP_W_BOOKING_###
+}
+```
+
+```cds
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Booking - Web API projection'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity ZRAP_W_BOOKING_###
+  as projection on ZRAP_I_BOOKING_###                          // 자식에는 provider contract 없음
+{
+  key TravelID,
+  key BookingID,
+      BookingDate,
+      CustomerID,
+      CarrierID,
+      ConnectionID,
+      FlightDate,
+      @Semantics.amount.currencyCode: 'CurrencyCode'
+      FlightPrice,
+      CurrencyCode,
+      BookingStatus,
+      LocalLastChangedAt,
+      _Travel : redirected to parent ZRAP_W_TRAVEL_###
+}
+```
+
+프로젝션 BDEF `ZRAP_W_TRAVEL_###`:
+
+```bdef
+projection;
+strict ( 2 );
+use draft;
+use side effects;
+
+define behavior for ZRAP_W_TRAVEL_### alias Travel
+use etag
+{
+  use create;
+  use update;
+  use delete;
+
+  use action acceptTravel;
+  use action rejectTravel;
+  use action deductDiscount;
+  use function GetDefaultsFordeductDiscount;
+  use action addServiceFee;
+  use action copyTravel;
+  use action createTravel;
+  use function getOpenTravelCount;
+  use action checkDates;
+
+  use action Edit;
+  use action Activate;
+  use action Discard;
+  use action Resume;
+  use action Prepare;
+
+  use association _Booking { create; with draft; }
+}
+
+define behavior for ZRAP_W_BOOKING_### alias Booking
+use etag
+{
+  use update;
+  use delete;
+  use function getDaysToFlight;
+  use association _Travel { with draft; }
+}
+```
+
 서비스 정의:
 
 ```cds
 @EndUserText.label: 'Travel Web API'
 define service ZRAP_API_TRAVEL_### {
-  expose ZRAP_I_TRAVEL_###  as Travel;
-  expose ZRAP_I_BOOKING_### as Booking;
+  expose ZRAP_W_TRAVEL_###  as Travel;
+  expose ZRAP_W_BOOKING_### as Booking;
 }
 ```
 
 서비스 바인딩: New → Service Binding, 이름 `ZRAP_API_TRAVEL_O4_###`, Binding Type `OData V4 - Web API`, Service Definition `ZRAP_API_TRAVEL_###` → 활성화 → Publish.
 
 해설
-- **3계층 구조**: R(기본 BO, 모든 로직) → C(`transactional_query`, 특정 UI용) / I(`transactional_interface`, 재사용 API용). I 계층은 UI 어노테이션 없이 안정된 이름과 연산만 노출하고, 다른 BO나 외부 시스템이 EML·Web API로 씁니다.
+- **3계층 구조**: R(기본 BO, 모든 로직) → C(`transactional_query`, 특정 UI용) / I(`transactional_interface`, 재사용 API용). I 계층은 UI 어노테이션 없이 안정된 이름과 연산만 노출하고, 다른 BO가 EML로 씁니다.
+- **I 뷰는 서비스에 바로 못 올림**: OData 서비스(UI든 Web API든)에 노출하는 엔터티는 `transactional_query` 프로젝션이어야 합니다. 그래서 Web API는 I 뷰 위에 `transactional_query` 프로젝션(W 뷰)을 하나 더 올려 노출합니다. I 계층은 그대로 두고 10단계 EML에서 씁니다. W 뷰를 I 뷰 대신 R 뷰 위에 올려도 서비스는 동작하지만, 그러면 I 계층(안정 계약)을 거치지 않습니다.
 - 인터페이스 BDEF는 `projection;`이 아니라 `interface;`로 시작합니다. 새 로직은 넣을 수 없고 `use`로 고르기만 합니다(참조 시나리오 `/DMO/I_Travel_D`와 같은 형태).
 - **Web API** 바인딩은 UI 메타데이터 없이 OData 서비스만 제공합니다. 실제 외부 공개는 통신 시나리오·통신 약정(Communication Arrangement)으로 하는데, 트라이얼에서 이 구성까지 해 볼 수 있는지는 확인하지 못했습니다(실제 시스템에서 확인 필요).
 - 인터페이스에 `use draft`를 넣었습니다(참조 시나리오와 동일). API 소비자에게 draft를 노출하지 않으려면 draft 액션을 빼는 설계도 가능한데, draft BO에서 `use draft` 없이 활성화되는지는 확인하지 못했습니다(실제 시스템에서 확인 필요).
@@ -1573,7 +1671,7 @@ define service ZRAP_API_TRAVEL_### {
 - `GetDefaultsForCreate`(R-02의 create 기본값 함수)는 `use create;`로 함께 노출되는지, 따로 적어야 하는지 확인하지 못했습니다. 활성화 경고가 나면 ADT 제안을 따르세요(실제 시스템에서 확인 필요).
 
 자주 나는 오류
-- 서비스 바인딩 생성 시 `Prov. contract "transactional_interface" must not be used (Entity: ZRAP_I_BOOKING_###)`: 자식 뷰에 provider contract를 넣어서입니다. 자식 뷰에서 그 줄을 지우고 다시 활성화하세요. provider contract는 루트 프로젝션 뷰에만 씁니다.
+- 서비스 바인딩 생성 시 `Prov. contract "transactional_interface" must not be used (Entity: ZRAP_I_BOOKING_###)`: I 뷰를 서비스 정의에 바로 노출해서입니다. I 뷰 위에 `transactional_query` 프로젝션(W 뷰)을 만들고 서비스 정의에서 그 뷰를 노출하세요.
 - I 뷰 활성화 시 `_Booking` 재지정 대상이 아직 없다는 오류: 두 뷰를 함께 선택해 한꺼번에 활성화(Ctrl+Shift+F3)하세요.
 - 인터페이스 BDEF의 `with privileged mode;` 줄에 `"ZRAP_R_TRAVEL_###" is not defined with "with privileged mode"` 오류: R BDEF에 privileged mode가 아직 없어서입니다. 10단계 1번(R BDEF 머리의 `with privileged mode disabling …`, `define authorization context …`, `define own authorization context by privileged mode;`)을 먼저 하고 R BDEF → 인터페이스 BDEF 순서로 활성화하세요. 또는 이 줄을 주석 처리했다가 10단계에서 푸세요.
 
