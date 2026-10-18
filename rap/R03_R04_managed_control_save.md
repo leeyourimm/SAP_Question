@@ -3467,11 +3467,12 @@ CLASS lsc_zrap_r_travel_### IMPLEMENTATION.
     ENDIF.
 
     IF delete-travel IS NOT INITIAL.
-      DELETE zrap_atrav_### FROM TABLE @delete-travel MAPPING FROM ENTITY.
-
-      "bookings of deleted travels (composition) - one statement
+      "delete-travel is a REQUEST FOR DELETE type: MAPPING FROM ENTITY is not allowed -> delete by key
       DATA deleted_travels TYPE RANGE OF /dmo/travel_id.
       deleted_travels = VALUE #( FOR t IN delete-travel ( sign = 'I' option = 'EQ' low = t-TravelID ) ).
+      DELETE FROM zrap_atrav_### WHERE travel_id IN @deleted_travels.
+
+      "bookings of deleted travels (composition) - one statement
       DELETE FROM zrap_abook_### WHERE travel_id IN @deleted_travels.
     ENDIF.
 
@@ -3486,7 +3487,10 @@ CLASS lsc_zrap_r_travel_### IMPLEMENTATION.
     ENDIF.
 
     IF delete-booking IS NOT INITIAL.
-      DELETE zrap_abook_### FROM TABLE @delete-booking MAPPING FROM ENTITY.
+      LOOP AT delete-booking INTO DATA(deleted_booking_key).
+        DELETE FROM zrap_abook_### WHERE travel_id  = @deleted_booking_key-TravelID
+                                     AND booking_id = @deleted_booking_key-BookingID.
+      ENDLOOP.
     ENDIF.
 
   ENDMETHOD.
@@ -3579,6 +3583,7 @@ additional save와 unmanaged save 비교
 해설
 - `with unmanaged save`에서는 managed의 인터랙션 단계(버퍼, 잠금, ETag, determination/validation, draft)는 그대로 framework가 하고, **마지막 DB 쓰기만** 내가 합니다. 완전한 unmanaged BO(R-05~R-07)와 달리 버퍼를 직접 만들 필요가 없습니다.
 - `persistent table`을 지워야 하는 이유: 그 줄은 "framework가 이 테이블에 저장한다"는 선언이라 unmanaged save와 모순되기 때문입니다(cheat sheet 36: "you cannot specify the persistent table in this case"). 참조 시나리오의 carrier singleton(`/DMO/I_CarriersLockSingleton_S`)이 `with unmanaged save` + persistent table 없음의 예입니다.
+- delete는 `MAPPING FROM ENTITY`를 쓸 수 없습니다. `save_modified`의 `delete-...`는 `REQUEST FOR DELETE` 타입이라 SQL이 "The derived type of the fields ... is not supported in this ABAP SQL command" 오류를 냅니다. 그래서 키로 `DELETE FROM ... WHERE`를 씁니다(실제 시스템에서 확인됨).
 - `mapping for`는 남겨야 `MAPPING FROM ENTITY`가 CDS 요소 이름(`TravelID`)을 테이블 필드(`travel_id`)로 바꿔 줍니다. `INDICATORS SET STRUCTURE %control`은 `%control`이 켜진 열만 UPDATE 합니다(cheat sheet 08). cheat sheet 예제는 한 줄(`FROM @structure`)에 대한 것이며, `FROM TABLE @...`과 함께 쓰는 형태는 실제 시스템에서 확인하세요. 안 되면 `LOOP AT ... INTO`로 한 줄씩 같은 문장을 실행하면 됩니다(실제 시스템에서 확인 필요).
 - 머리 문법 `managed with unmanaged save and cleanup with full data`에서 `and cleanup`과 `with full data`의 순서는 cheat sheet에 "함께 쓸 수 있다"고만 되어 있어 확인하지 못했습니다. 활성화 오류가 나면 순서를 바꿔 보세요(실제 시스템에서 확인 필요). `and cleanup`을 쓰면 `cleanup` 재정의가 필요합니다.
 - persistent table이 없을 때 framework가 활성 데이터를 어디서 읽는지(CDS 뷰를 통해 읽는 것으로 보임)는 실제 시스템에서 확인하세요(실제 시스템에서 확인 필요).
