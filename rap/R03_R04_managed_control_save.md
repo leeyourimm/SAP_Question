@@ -1393,7 +1393,7 @@ draft table zrap_dtrav_### query ZRAP_R_TRAVELDRAFT_###     // draft 데이터�
 1. 인터페이스 프로젝션 뷰 `ZRAP_I_TRAVEL_###`(root), `ZRAP_I_BOOKING_###`를 R 뷰 위에 만드세요. provider contract는 인터페이스용, 필드는 R 뷰 전부, 연관은 `_Booking`(→ I Booking), `_Travel`(→ I Travel)만 재지정합니다. UI 어노테이션은 넣지 않습니다.
 2. 두 뷰의 접근 제어는 R 뷰 조건 상속으로 만드세요(`ZRAP_I_TRAVEL_###`, `ZRAP_I_BOOKING_###`).
 3. 인터페이스 BDEF `ZRAP_I_TRAVEL_###`를 만드세요(뷰에서 우클릭 → New Behavior Definition, 구현 유형 interface).
-   - draft와 side effects를 사용하고, privileged 호출을 허용합니다(10단계에서 사용).
+   - draft와 side effects를 사용하고, privileged 호출을 허용합니다(10단계에서 사용). privileged 허용은 R BDEF에 privileged mode가 켜져 있어야 활성화되므로, 10단계 1번의 R BDEF 머리 세 줄을 먼저 추가하세요.
    - Travel: ETag 사용, CUD, 액션 `acceptTravel`, `rejectTravel`, `deductDiscount`, `addServiceFee`, `copyTravel`, `createTravel`, `checkDates`, 함수 `GetDefaultsFordeductDiscount`, `getOpenTravelCount`, draft 액션 5개, Booking 생성. `sendReminder`는 API에 내보내지 않습니다.
    - Booking: ETag, update, delete, 함수 `getDaysToFlight`, `_Travel` 연관.
 4. 서비스 정의 `ZRAP_API_TRAVEL_###`에 I 뷰 두 개를 `Travel`, `Booking`으로 노출하고, 서비스 바인딩 `ZRAP_API_TRAVEL_O4_###`를 **OData V4 - Web API** 유형으로 만들어 Publish하세요.
@@ -1574,6 +1574,7 @@ define service ZRAP_API_TRAVEL_### {
 
 자주 나는 오류
 - I 뷰 활성화 시 `_Booking` 재지정 대상이 아직 없다는 오류: 두 뷰를 함께 선택해 한꺼번에 활성화(Ctrl+Shift+F3)하세요.
+- 인터페이스 BDEF의 `with privileged mode;` 줄에 `"ZRAP_R_TRAVEL_###" is not defined with "with privileged mode"` 오류: R BDEF에 privileged mode가 아직 없어서입니다. 10단계 1번(R BDEF 머리의 `with privileged mode disabling …`, `define authorization context …`, `define own authorization context by privileged mode;`)을 먼저 하고 R BDEF → 인터페이스 BDEF 순서로 활성화하세요. 또는 이 줄을 주석 처리했다가 10단계에서 푸세요.
 
 </details>
 
