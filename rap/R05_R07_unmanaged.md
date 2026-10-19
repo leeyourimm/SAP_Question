@@ -965,9 +965,6 @@ CLASS zcl_leg_order_### IMPLEMENTATION.
       OR ( iv_from = zif_leg_order_###=>status-rejected AND iv_to = zif_leg_order_###=>status-new ) ).
   ENDMETHOD.
 
-  " 8~10단계: 인터페이스 메서드(zif_leg_order_###~create_order 등) / _create_item / _update_item / _delete_item / _check_item_immediate
-  " 를 이 아래에 붙입니다.
-
 ENDCLASS.
 ```
 
@@ -985,6 +982,7 @@ ENDCLASS.
 자주 나는 오류와 해결
 
 - `MODIFY TABLE` 대신 `READ TABLE ... ASSIGNING <fs>` 후 `<fs> = CORRESPONDING #( ... )`로 통째로 덮어쓰면, 정렬 테이블의 키 필드를 바꾸려 한다는 런타임 오류가 날 수 있습니다. 키를 포함한 행 전체 교체는 `MODIFY TABLE ... FROM`을 쓰세요.
+- 활성화할 때 "The class contains unknown comments which can't be stored"가 뜨면 `ENDMETHOD.`와 다음 `METHOD` 사이에 주석이 있는 것입니다. 전역 클래스는 메서드마다 따로 저장되므로 주석은 METHOD 안에 두세요.
 - `FOR ALL ENTRIES IN`의 내부 테이블이 비어 있으면 WHERE 조건이 무시되어 **테이블 전체**를 읽습니다. 그래서 `_get_items_mass` 첫 줄에 `CHECK it_order_ids IS NOT INITIAL`을 둡니다.
 
 </details>
@@ -4278,10 +4276,10 @@ CLASS zcl_rap_order_u_eml_### IMPLEMENTATION.
     demo_rollback( ).
   ENDMETHOD.
 
-  "------------------------------------------------------------------
-  " 1) 깊은 생성: 주문 + 품목 2건, %cid / %cid_ref
-  "------------------------------------------------------------------
   METHOD demo_deep_create.
+    "------------------------------------------------------------------
+    " 1) 깊은 생성: 주문 + 품목 2건, %cid / %cid_ref
+    "------------------------------------------------------------------
     out->write( `=== 1) Deep create ===` ).
 
     DATA(lv_delivery) = CONV d( cl_abap_context_info=>get_system_date( ) + 14 ).
@@ -4355,10 +4353,10 @@ CLASS zcl_rap_order_u_eml_### IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
-  "------------------------------------------------------------------
-  " 2) %control: 보낸 필드만 바뀐다
-  "------------------------------------------------------------------
   METHOD demo_update_with_control.
+    "------------------------------------------------------------------
+    " 2) %control: 보낸 필드만 바뀐다
+    "------------------------------------------------------------------
     out->write( `=== 2) Update only Note (%control) ===` ).
 
     MODIFY ENTITIES OF zrap_r_order_u_###
@@ -4387,10 +4385,10 @@ CLASS zcl_rap_order_u_eml_### IMPLEMENTATION.
     out->write( |ETag field LocalLastChangedAt = { lt_orders[ 1 ]-LocalLastChangedAt }| ).
   ENDMETHOD.
 
-  "------------------------------------------------------------------
-  " 3) 액션과 결과
-  "------------------------------------------------------------------
   METHOD demo_action.
+    "------------------------------------------------------------------
+    " 3) 액션과 결과
+    "------------------------------------------------------------------
     out->write( `=== 3) Action approveOrder ===` ).
 
     MODIFY ENTITIES OF zrap_r_order_u_###
@@ -4413,10 +4411,10 @@ CLASS zcl_rap_order_u_eml_### IMPLEMENTATION.
     COMMIT ENTITIES.
   ENDMETHOD.
 
-  "------------------------------------------------------------------
-  " 4) 기능 제어/레거시 상태 검사로 거부되는 변경
-  "------------------------------------------------------------------
   METHOD demo_disabled_update.
+    "------------------------------------------------------------------
+    " 4) 기능 제어/레거시 상태 검사로 거부되는 변경
+    "------------------------------------------------------------------
     out->write( `=== 4) Update an approved order ===` ).
 
     MODIFY ENTITIES OF zrap_r_order_u_###
@@ -4435,10 +4433,10 @@ CLASS zcl_rap_order_u_eml_### IMPLEMENTATION.
     ROLLBACK ENTITIES.
   ENDMETHOD.
 
-  "------------------------------------------------------------------
-  " 5) check_before_save가 거부하는 저장
-  "------------------------------------------------------------------
   METHOD demo_save_rejected.
+    "------------------------------------------------------------------
+    " 5) check_before_save가 거부하는 저장
+    "------------------------------------------------------------------
     out->write( `=== 5) Save rejected by check_before_save ===` ).
 
     MODIFY ENTITIES OF zrap_r_order_u_###
@@ -4467,10 +4465,10 @@ CLASS zcl_rap_order_u_eml_### IMPLEMENTATION.
     ROLLBACK ENTITIES.
   ENDMETHOD.
 
-  "------------------------------------------------------------------
-  " 6) ROLLBACK ENTITIES: 버퍼 폐기 (cleanup 호출)
-  "------------------------------------------------------------------
   METHOD demo_rollback.
+    "------------------------------------------------------------------
+    " 6) ROLLBACK ENTITIES: 버퍼 폐기 (cleanup 호출)
+    "------------------------------------------------------------------
     out->write( `=== 6) Rollback ===` ).
 
     MODIFY ENTITIES OF zrap_r_order_u_###
