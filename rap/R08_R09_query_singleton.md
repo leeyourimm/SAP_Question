@@ -1,7 +1,7 @@
 ## 3. 특수 BO 패턴
 
 ### R-08. Custom Entity와 Unmanaged Query: 직접 조회 로직 쓰기 [작성] ★★★
-<!-- covers: define custom entity, @ObjectModel.query.implementedBy, if_rap_query_provider~select, is_data_requested, is_total_numb_of_rec_requested, get_paging, if_rap_query_paging=>page_size_unlimited, get_sort_elements, get_filter get_as_ranges, get_as_sql_string, cx_rap_query_filter_no_range, get_search_expression, get_requested_elements, set_total_number_of_records, set_data, SELECT FROM @itab, abap_sortorder_tab, @UI.dataPoint #PROGRESS, criticality, @Search.searchable, value help custom entity, additionalBinding, ABAP Unit cl_osql_test_environment, read-only 모델 비교 -->
+<!-- covers: define custom entity, @ObjectModel.query.implementedBy, if_rap_query_provider~select, is_data_requested, is_total_numb_of_rec_requested, get_paging, if_rap_query_paging=>page_size_unlimited, get_sort_elements, get_filter get_as_ranges, get_as_sql_string, cx_rap_query_filter_no_range, get_search_expression, get_requested_elements, set_total_number_of_records, set_data, SELECT FROM @itab, abap_sortorder_tab, @UI.dataPoint #PROGRESS, criticality, @Search.searchable, value help custom entity, additionalBinding, ABAP Unit cl_osql_test_environment, read-only 모델 비교, 계산 push-down(도전), DENSE_RANK, 누적 SUM OVER, DB 페이징 OFFSET, 교차 검증 테스트 -->
 
 **목표**
 - 데이터베이스 뷰로는 표현하기 어려운 계산(좌석 이용률, 신호등 색)을 ABAP 코드로 만들어 OData 엔터티로 내보내는 **custom entity + unmanaged query**를 직접 만들 수 있습니다.
@@ -1436,7 +1436,253 @@ ENDCLASS.
 | 클라우드(ABAP Cloud) | 가능 | 가능 | 가능(AMDP는 HANA 전용) |
 
 - 결론: **DB에 있고 SQL로 계산 가능하면 view entity**가 기본입니다. 이 문제의 이용률도 사실 CDS 식으로 계산할 수 있으므로, 실무라면 view entity가 더 낫습니다. custom entity는 "DB 밖의 데이터" 또는 "ABAP 로직이 꼭 필요한 값"에 씁니다. 이 문제는 select의 모든 기능을 연습하려고 일부러 custom entity를 썼습니다.
-- table function은 이 문제집 범위를 넘으므로 비교만 했습니다. 문법은 다루지 않습니다.
+- table function은 여기서는 비교만 했고, R-22 4단계(SQL 고난도 단원)에서 AMDP로 직접 만듭니다.
+
+</details>
+
+#### 11단계. (도전 ★★★★) 계산을 DB로 내리기: 순위·누적 좌석까지 SQL로, 필터·정렬·페이징도 DB에서
+
+> SQL 고난도 단원(R-19~R-22)의 CTE·윈도 함수로 이 문제의 조회 엔진을 다시 쓰는 도전 단계입니다.
+
+요구사항
+1. 5단계의 select는 **모든 항공편을 읽은 뒤** ABAP에서 계산·필터·정렬·페이징을 합니다. 항공편이 수십만 건이면 페이지 하나(20건)를 보여 주려고 전부를 읽게 됩니다. 계산 필드까지 SQL로 옮겨 이 문제를 없애세요.
+2. custom entity에 요소 두 개를 추가합니다.
+   - `RankInConnection : abap.int4` — 같은 노선(항공사+노선 번호) 안에서 이용률 높은 순 순위(동점은 같은 순위, `DENSE_RANK`).
+   - `SeatsOccupiedCum : abap.int4` — 같은 노선에서 운항일 순으로 예약 좌석 누적.
+3. 새 메서드 `read_flights_db`를 만드세요.
+   - 입력: range(`tt_name_range_pairs`), 정렬 요소(`if_rap_query_request=>tt_sort_elements`), offset, 최대 건수(0 = 제한 없음).
+   - 출력: 페이지 데이터, 전체 건수.
+   - `UtilizationPct`·`UtilizationCriticality`·`RankInConnection`·`SeatsOccupiedCum`을 **SQL에서 계산**하고, 이 계산 필드에 대한 필터(예: `UtilizationCriticality eq 3`, `RankInConnection eq 1`)도 SQL `WHERE`로 처리합니다. 최대 좌석이 0인 항공편은 이용률 0(0으로 나누기 금지).
+   - 정렬·페이징은 `ORDER BY (동적)` + `OFFSET` + `UP TO`로 DB에서.
+4. `select`가 검색어가 없을 때는 `read_flights_db`를 쓰도록 바꾸세요(검색어가 있으면 기존 경로 유지).
+5. 채점: 9단계 테스트 클래스에 테스트 두 개를 추가합니다.
+   - `db_equals_abap`: 같은 고정 데이터에서 `read_flights_db`(정렬 기본, 페이징 없음)의 기존 필드가 `read_flights`(ABAP 계산) 결과와 **같은지** 교차 검증.
+   - `db_rank_and_paging`: 아래 기대 결과.
+
+고정 데이터 (`/DMO/FLIGHT`, 통화 EUR, `/DMO/CONNECTION`은 노선마다 한 줄)
+
+| carrier_id | connection_id | flight_date | seats_max | seats_occupied |
+|---|---|---|---|---|
+| AA | 0017 | 20261101 | 150 | 50 |
+| LH | 0400 | 20261101 | 200 | 190 |
+| LH | 0400 | 20261102 | 200 | 120 |
+| LH | 0400 | 20261103 | 200 | 190 |
+| LH | 0401 | 20261101 | 0 | 0 |
+
+기대 결과 (필터 없음, 기본 정렬)
+
+| CarrierID | ConnectionID | FlightDate | UtilizationPct | UtilizationCriticality | RankInConnection | SeatsOccupiedCum |
+|---|---|---|---|---|---|---|
+| AA | 0017 | 20261101 | 33.33 | 1 | 1 | 50 |
+| LH | 0400 | 20261101 | 95.00 | 3 | 1 | 190 |
+| LH | 0400 | 20261102 | 60.00 | 2 | 2 | 310 |
+| LH | 0400 | 20261103 | 95.00 | 3 | 1 | 500 |
+| LH | 0401 | 20261101 | 0.00 | 1 | 1 | 0 |
+
+기대 결과 (`RankInConnection = 1`, offset 1, 최대 2건): `LH 0400 20261101`, `LH 0400 20261103` 두 행, 전체 건수 4.
+
+<details><summary>정답·해설</summary>
+
+custom entity에 추가:
+
+```cds
+      @EndUserText.label: 'Rank in Connection'
+      RankInConnection       : abap.int4;
+      @EndUserText.label: 'Occupied Seats (cumulative)'
+      SeatsOccupiedCum       : abap.int4;
+```
+
+클래스 정의에 추가:
+
+```abap
+    "! 계산·필터·정렬·페이징을 모두 DB에서 (검색어 없는 요청용)
+    METHODS read_flights_db
+      IMPORTING it_ranges  TYPE if_rap_query_filter=>tt_name_range_pairs OPTIONAL
+                it_sort    TYPE if_rap_query_request=>tt_sort_elements OPTIONAL
+                iv_offset  TYPE i DEFAULT 0
+                iv_max     TYPE i DEFAULT 0
+      EXPORTING et_flights TYPE tt_flight
+                ev_count   TYPE int8.
+```
+
+구현:
+
+```abap
+  METHOD read_flights_db.
+    DATA lr_carrier     TYPE RANGE OF /dmo/carrier_id.
+    DATA lr_connection  TYPE RANGE OF /dmo/connection_id.
+    DATA lr_flight_date TYPE RANGE OF /dmo/flight_date.
+    DATA lr_from        TYPE RANGE OF /dmo/airport_from_id.
+    DATA lr_to          TYPE RANGE OF /dmo/airport_to_id.
+    DATA lr_util        TYPE RANGE OF zrap_ce_flight_###-utilizationpct.
+    DATA lr_crit        TYPE RANGE OF zrap_ce_flight_###-utilizationcriticality.
+    DATA lr_rank        TYPE RANGE OF i.
+
+    LOOP AT it_ranges INTO DATA(ls_range).
+      CASE ls_range-name.
+        WHEN 'CARRIERID'.              lr_carrier     = CORRESPONDING #( ls_range-range ).
+        WHEN 'CONNECTIONID'.           lr_connection  = CORRESPONDING #( ls_range-range ).
+        WHEN 'FLIGHTDATE'.             lr_flight_date = CORRESPONDING #( ls_range-range ).
+        WHEN 'DEPARTUREAIRPORT'.       lr_from        = CORRESPONDING #( ls_range-range ).
+        WHEN 'DESTINATIONAIRPORT'.     lr_to          = CORRESPONDING #( ls_range-range ).
+        WHEN 'UTILIZATIONPCT'.         lr_util        = CORRESPONDING #( ls_range-range ).
+        WHEN 'UTILIZATIONCRITICALITY'. lr_crit        = CORRESPONDING #( ls_range-range ).
+        WHEN 'RANKINCONNECTION'.       lr_rank        = CORRESPONDING #( ls_range-range ).
+      ENDCASE.
+    ENDLOOP.
+
+    " 정렬: 엔터티 요소 이름만 → 인젝션 없음. 마지막에 키를 붙여 순서를 유일하게
+    DATA(lv_order) = REDUCE string( INIT s = ``
+                       FOR ls IN it_sort
+                       NEXT s = s && to_lower( ls-element_name )
+                                  && COND #( WHEN ls-descending = abap_true THEN ` DESCENDING` ) && `, ` ).
+    lv_order = lv_order && `carrierid, connectionid, flightdate`.
+
+    WITH
+      +f AS ( SELECT FROM /dmo/flight AS f
+                INNER JOIN /dmo/connection AS c
+                  ON  c~carrier_id    = f~carrier_id
+                  AND c~connection_id = f~connection_id
+                LEFT OUTER JOIN /dmo/carrier AS r
+                  ON r~carrier_id = f~carrier_id
+                FIELDS f~carrier_id      AS carrierid,
+                       f~connection_id   AS connectionid,
+                       f~flight_date     AS flightdate,
+                       r~name            AS carriername,
+                       c~airport_from_id AS departureairport,
+                       c~airport_to_id   AS destinationairport,
+                       f~plane_type_id   AS planetype,
+                       f~price           AS price,
+                       f~currency_code   AS currencycode,
+                       f~seats_max       AS seatsmax,
+                       f~seats_occupied  AS seatsoccupied,
+                       f~seats_max - f~seats_occupied AS seatsfree,
+                       CASE WHEN f~seats_max > 0
+                            THEN DIVISION( f~seats_occupied * 100, f~seats_max, 2 )
+                            ELSE CAST( 0 AS DEC( 5, 2 ) ) END AS utilizationpct
+                WHERE f~carrier_id      IN @lr_carrier
+                  AND f~connection_id   IN @lr_connection
+                  AND f~flight_date     IN @lr_flight_date
+                  AND c~airport_from_id IN @lr_from
+                  AND c~airport_to_id   IN @lr_to ),
+      +w AS ( SELECT FROM +f
+                FIELDS carrierid, connectionid, flightdate, carriername, departureairport,
+                       destinationairport, planetype, price, currencycode,
+                       seatsmax, seatsoccupied, seatsfree, utilizationpct,
+                       CASE WHEN utilizationpct >= 80 THEN 3
+                            WHEN utilizationpct >= 50 THEN 2
+                            ELSE 1 END AS utilizationcriticality,
+                       DENSE_RANK( ) OVER( PARTITION BY carrierid, connectionid
+                                           ORDER BY utilizationpct DESCENDING ) AS rankinconnection,
+                       SUM( seatsoccupied ) OVER( PARTITION BY carrierid, connectionid
+                                                  ORDER BY flightdate
+                                                  ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW ) AS seatsoccupiedcum )
+      SELECT FROM +w
+        FIELDS *
+        WHERE utilizationpct         IN @lr_util
+          AND utilizationcriticality IN @lr_crit
+          AND rankinconnection       IN @lr_rank
+        ORDER BY (lv_order)
+        INTO CORRESPONDING FIELDS OF TABLE @et_flights
+        OFFSET @iv_offset
+        UP TO @iv_max ROWS.
+
+    " 건수: 같은 계산·필터, 정렬·페이징 없음 (CTE는 문장마다 다시 써야 함)
+    WITH
+      +f AS ( SELECT FROM /dmo/flight AS f
+                INNER JOIN /dmo/connection AS c
+                  ON  c~carrier_id    = f~carrier_id
+                  AND c~connection_id = f~connection_id
+                FIELDS f~carrier_id AS carrierid, f~connection_id AS connectionid,
+                       CASE WHEN f~seats_max > 0
+                            THEN DIVISION( f~seats_occupied * 100, f~seats_max, 2 )
+                            ELSE CAST( 0 AS DEC( 5, 2 ) ) END AS utilizationpct
+                WHERE f~carrier_id      IN @lr_carrier
+                  AND f~connection_id   IN @lr_connection
+                  AND f~flight_date     IN @lr_flight_date
+                  AND c~airport_from_id IN @lr_from
+                  AND c~airport_to_id   IN @lr_to ),
+      +w AS ( SELECT FROM +f
+                FIELDS utilizationpct,
+                       CASE WHEN utilizationpct >= 80 THEN 3
+                            WHEN utilizationpct >= 50 THEN 2
+                            ELSE 1 END AS utilizationcriticality,
+                       DENSE_RANK( ) OVER( PARTITION BY carrierid, connectionid
+                                           ORDER BY utilizationpct DESCENDING ) AS rankinconnection )
+      SELECT FROM +w
+        FIELDS COUNT( * )
+        WHERE utilizationpct         IN @lr_util
+          AND utilizationcriticality IN @lr_crit
+          AND rankinconnection       IN @lr_rank
+        INTO @ev_count.
+  ENDMETHOD.
+```
+
+`select` 바꾸기(핵심 부분):
+
+```abap
+    DATA(lv_search) = io_request->get_search_expression( ).
+    IF lv_search IS INITIAL.
+      DATA(lv_size) = io_request->get_paging( )->get_page_size( ).
+      read_flights_db(
+        EXPORTING it_ranges  = lt_ranges
+                  it_sort    = io_request->get_sort_elements( )
+                  iv_offset  = io_request->get_paging( )->get_offset( )
+                  iv_max     = COND #( WHEN lv_size = if_rap_query_paging=>page_size_unlimited THEN 0 ELSE lv_size )
+        IMPORTING et_flights = DATA(lt_page)
+                  ev_count   = DATA(lv_count) ).
+      IF io_request->is_total_numb_of_rec_requested( ).
+        io_response->set_total_number_of_records( lv_count ).
+      ENDIF.
+      IF io_request->is_data_requested( ).
+        io_response->set_data( lt_page ).
+      ENDIF.
+      RETURN.
+    ENDIF.
+    " 검색어가 있으면 5단계의 ABAP 경로 그대로
+```
+
+테스트(9단계 테스트 클래스에 추가, 테스트 더블에 위 고정 데이터를 넣는 `setup`은 9단계 것을 확장):
+
+```abap
+  METHOD db_equals_abap.
+    DATA(lo) = NEW zcl_rap_ce_flight_###( ).
+    DATA(lt_abap) = lo->read_flights( iv_with_names = abap_false ).
+    SORT lt_abap BY carrierid connectionid flightdate.
+
+    lo->read_flights_db( IMPORTING et_flights = DATA(lt_db) ).
+    " ABAP 경로는 새 필드와 항공사 이름을 채우지 않으므로 비교 전에 지움
+    LOOP AT lt_db ASSIGNING FIELD-SYMBOL(<f>).
+      CLEAR: <f>-rankinconnection, <f>-seatsoccupiedcum, <f>-carriername.
+    ENDLOOP.
+
+    cl_abap_unit_assert=>assert_equals( act = lt_db exp = lt_abap msg = 'SQL calc = ABAP calc' ).
+  ENDMETHOD.
+
+  METHOD db_rank_and_paging.
+    NEW zcl_rap_ce_flight_###( )->read_flights_db(
+      EXPORTING it_ranges = VALUE #( ( name  = 'RANKINCONNECTION'
+                                       range = VALUE #( ( sign = 'I' option = 'EQ' low = '1' ) ) ) )
+                iv_offset = 1
+                iv_max    = 2
+      IMPORTING et_flights = DATA(lt_page)
+                ev_count   = DATA(lv_count) ).
+
+    cl_abap_unit_assert=>assert_equals( act = lv_count exp = 4 ).
+    cl_abap_unit_assert=>assert_equals(
+      act = VALUE string_table( FOR f IN lt_page ( |{ f-carrierid } { f-connectionid } { f-flightdate }| ) )
+      exp = VALUE string_table( ( `LH 0400 20261101` ) ( `LH 0400 20261103` ) ) ).
+    cl_abap_unit_assert=>assert_equals( act = lt_page[ 2 ]-seatsoccupiedcum exp = 500 ).
+  ENDMETHOD.
+```
+
+왜 이렇게 쓰나
+- **계산 필드 필터를 DB로**: 5단계에서는 `UtilizationCriticality eq 3` 같은 필터를 SQL 문자열로 내부 테이블에 걸어야 했습니다(4단계). 계산을 CTE 안으로 옮기면 계산 필드도 일반 열처럼 `WHERE … IN @range`로 거를 수 있고, 페이징도 DB에서 정확해집니다.
+- **필터 위치**: 순위(`RankInConnection`)는 노선 안의 **모든 운항일**을 보고 매겨야 합니다. 그래서 운항일 필터(`FlightDate`)를 CTE 안(순위 전)에 걸면 순위가 "필터된 날짜 안의 순위"로 바뀝니다. 이 해답은 사용자가 고른 날짜 범위 안에서의 순위를 보여 주려고 일부러 앞에 걸었습니다. "전체 기간 기준 순위"가 요구사항이면 날짜 필터를 바깥 WHERE로 옮겨야 합니다. 이런 결정을 해설에 적어 두는 것이 실무 수준입니다.
+- **0으로 나누기**: `CASE WHEN seats_max > 0 THEN DIVISION(…)`으로 막았습니다. HANA는 CASE를 조건 순서대로 평가하므로 0인 행에서 DIVISION이 실행되지 않습니다(실제 시스템에서 확인 필요).
+- **반올림 일치**: ABAP 경로의 `round( dec = 2 )`와 SQL `DIVISION(…, 2)`가 모두 반올림이라 `db_equals_abap`이 통과합니다. 한쪽이 버림이면 33.33/33.34처럼 0.01 차이가 나고, 교차 검증 테스트가 그걸 잡아 줍니다.
+- **정렬의 유일성**: 사용자 정렬 뒤에 항상 키(`carrierid, connectionid, flightdate`)를 붙였습니다. 이용률로만 정렬하면 동점 행의 순서가 요청마다 바뀌어 페이지 경계에서 행이 **중복되거나 사라집니다**. OFFSET 페이징에서 가장 흔한 버그입니다.
+- `FIELDS *`를 CTE에서 쓰는 것이 막히면 열을 모두 나열하세요(실제 시스템에서 확인 필요).
 
 </details>
 

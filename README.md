@@ -7,7 +7,7 @@
 - 문제마다 단계(섹션)를 나눠 한 문제 안에서 처음부터 끝까지 만들 수 있습니다. 단계마다 요구사항, 직접 추가할 어노테이션(이름과 목적만), 확인 방법, 정답·해설이 있습니다.
 - 정답 코드 안의 어노테이션을 누르면 어노테이션 설명 탭으로 이동합니다. 단계별 "끝냄" 표시와 메모는 브라우저에만 저장됩니다.
 
-## 문제 구성 (18문제 · 200단계)
+## 문제 구성 (22문제 · 233단계)
 
 | 파일 | 단원 | 문제 |
 |---|---|---|
@@ -23,9 +23,15 @@
 | [rap/R16_events_sideeffects_adv.md](rap/R16_events_sideeffects_adv.md) | 〃 | R-16 자식·deep·파생 이벤트, 로컬 소비자 재시도, 이벤트 기반·전역·$self·entity·permissions 사이드 이펙트, use event, 이벤트 바인딩 |
 | [rap/R17_projection_eml_adv.md](rap/R17_projection_eml_adv.md) | 〃 | R-17 다중 프로젝션, 프로젝션 전용 액션·함수, augment·precheck, managed instance filter, FORWARDING PRIVILEGED, WITH CHANGES, get_current_phase, 파생 타입(RTTS), 계약 검사 |
 | [rap/R18_tools_integration.md](rap/R18_tools_integration.md) | 〃 | R-18 ADT 생성기, Service Consumption Model + Custom Entity, 애플리케이션 로그, bgPF, 애플리케이션 잡, BAS 배포·FLP |
+| [rap/R19_R22_sql_challenge.md](rap/R19_R22_sql_challenge.md) | 6. SQL 고난도 (결과 자동 채점) ★★★★ | R-19 구매(EKKO/EKPO 모양) 조인·집계·CTE·FOR ALL ENTRIES 함정 / R-20 판매 윈도 함수(순번·누적·LAG·Top-N 동점·ABC·연속 구간·이동평균) / R-21 회계(차대 검증·GROUPING SETS·기준일 연령 분석·반제 매칭·대사·중복 송장) / R-22 같은 문제를 CDS·파라미터 CDS·AMDP 테이블 함수·custom entity로 |
 | [rap/annotations.md](rap/annotations.md) | 어노테이션 설명 탭 | 97개 항목, 하고 싶은 일 → 어노테이션 표 |
 
 > 실제 SAP 시스템에서 실행해 검증하지는 못했습니다. 정답 안에 "(실제 시스템에서 확인 필요)"라고 적힌 곳은 공식 샘플에서 문법을 확인하지 못한 부분이니 활성화하면서 확인하세요.
+
+## 2026-10-22 고난도 업그레이드 (쿼리포터 sql.10xflow.kr 참고)
+
+- **새 단원 6 (R-19~R-22, 20문항 Q01~Q20)**: SAP 모양 Z 테이블 9개(`ZSQ_EKKO_###` 등)에 고정 데이터를 넣고, 문항마다 기대 결과 표와 ABAP Unit 채점 메서드(`cl_osql_test_environment`)를 줍니다. 결과가 한 줄이라도 다르면 실패합니다. 기대 결과는 같은 데이터를 다른 DB 엔진으로 실행해 계산한 값입니다.
+- **기존 문제 도전 단계(★★★★) 추가**: R-01 12단계(데이터 품질 SQL), R-02 13단계(기간 겹침 집합 검증), R-04 11단계(번호 감사 SQL), R-08 11단계(계산·페이징 DB push-down), R-13 12단계(RTTS 차이 리포트 채점기).
 
 ## 보관한 이전 문제
 
@@ -35,7 +41,7 @@
 
 ```
 ## 단원
-### R-14. 제목 [작성] ★★★
+### R-14. 제목 [작성] ★★★   (난이도 ★1~4개)
 <!-- covers: 기능1, 기능2 -->
 **목표** / **전제** / **만들 객체**
 #### 1단계. 제목

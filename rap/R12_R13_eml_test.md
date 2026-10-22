@@ -1957,7 +1957,7 @@ Item mapped 2건, failed Order 0건
 
 
 ### R-13. RAP BO 테스트: ABAP Unit, 테스트 더블, OData 수준 테스트 [작성] ★★★
-<!-- covers: ABAP Unit, FOR TESTING, RISK LEVEL, DURATION, class_setup, setup, teardown, class_teardown, cl_abap_unit_assert, DEFINITION DEFERRED FOR TESTING, FRIENDS, CREATE OBJECT FOR TESTING, @testing BDEF, @testing SRVB, CDS test double framework, cl_cds_test_environment, create_for_multiple_cds, enable_double_redirection, i_select_base_dependencies, insert_test_data, clear_doubles, ABAP SQL test double framework, cl_osql_test_environment, MAPPING TO ENTITY, TYPE TABLE FOR VALIDATION, TYPE TABLE FOR DETERMINATION, TYPE TABLE FOR ACTION IMPORT, TYPE TABLE FOR ACTION RESULT, TYPE TABLE FOR FUNCTION IMPORT, TYPE TABLE FOR FUNCTION RESULT, TYPE TABLE FOR INSTANCE FEATURES, GLOBAL AUTHORIZATION, TYPE TABLE FOR AUTHORIZATION, RESPONSE FOR FAILED LATE, RESPONSE FOR REPORTED LATE, RESPONSE FOR MAPPED LATE, REQUEST FOR CHANGE, REQUEST FOR DELETE, state message test, %state_area, %element, t100key, if_abap_behavior_testdouble, cl_abap_behv_test_environment, set_test_double, unset_test_double, saver test, adjust_numbers, %tmp, %pid, save_modified, cl_aunit_authority_check, RAP BO test double framework, cl_botd_txbufdbl_bo_test_env, cl_botd_mockemlapi_bo_test_env, handle_draft, if_botd_bufdbl_fields_handler, cl_botd_mockemlapi_bldrfactory, configure_call, when_input, then_set_output, ignore_input, for_times, verify, is_called_times, GET PERMISSIONS test, COMMIT ENTITIES in test, integration test, CDS view unit test, test_associations, OData local client proxy, cl_web_odata_client_factory, create_v2_local_proxy, navigate_with_key, set_if_match, create_filter_factory, set_deep_business_data, cl_abap_testdouble, TEST-SEAM, TEST-INJECTION, code coverage -->
+<!-- covers: ABAP Unit, FOR TESTING, RISK LEVEL, DURATION, class_setup, setup, teardown, class_teardown, cl_abap_unit_assert, DEFINITION DEFERRED FOR TESTING, FRIENDS, CREATE OBJECT FOR TESTING, @testing BDEF, @testing SRVB, CDS test double framework, cl_cds_test_environment, create_for_multiple_cds, enable_double_redirection, i_select_base_dependencies, insert_test_data, clear_doubles, ABAP SQL test double framework, cl_osql_test_environment, MAPPING TO ENTITY, TYPE TABLE FOR VALIDATION, TYPE TABLE FOR DETERMINATION, TYPE TABLE FOR ACTION IMPORT, TYPE TABLE FOR ACTION RESULT, TYPE TABLE FOR FUNCTION IMPORT, TYPE TABLE FOR FUNCTION RESULT, TYPE TABLE FOR INSTANCE FEATURES, GLOBAL AUTHORIZATION, TYPE TABLE FOR AUTHORIZATION, RESPONSE FOR FAILED LATE, RESPONSE FOR REPORTED LATE, RESPONSE FOR MAPPED LATE, REQUEST FOR CHANGE, REQUEST FOR DELETE, state message test, %state_area, %element, t100key, if_abap_behavior_testdouble, cl_abap_behv_test_environment, set_test_double, unset_test_double, saver test, adjust_numbers, %tmp, %pid, save_modified, cl_aunit_authority_check, RAP BO test double framework, cl_botd_txbufdbl_bo_test_env, cl_botd_mockemlapi_bo_test_env, handle_draft, if_botd_bufdbl_fields_handler, cl_botd_mockemlapi_bldrfactory, configure_call, when_input, then_set_output, ignore_input, for_times, verify, is_called_times, GET PERMISSIONS test, COMMIT ENTITIES in test, integration test, CDS view unit test, test_associations, OData local client proxy, cl_web_odata_client_factory, create_v2_local_proxy, navigate_with_key, set_if_match, create_filter_factory, set_deep_business_data, cl_abap_testdouble, TEST-SEAM, TEST-INJECTION, code coverage, 차이 리포트 채점기(도전), RTTS, ASSIGN COMPONENT, 순서 무관 비교 -->
 
 **목표**
 - 행동 풀(Behavior Pool)의 핸들러·세이버 메서드를 프레임워크 없이 직접 호출하는 **단위 테스트**를 쓸 수 있습니다(`CREATE OBJECT ... FOR TESTING`, `FRIENDS`).
@@ -4636,6 +4636,199 @@ R-04 `adjust_numbers`의 번호 범위 블록을 시임으로 감쌉니다(행�
 - `create_v2_local_proxy`에서 예외: 바인딩이 Publish되지 않았거나 `service_id`가 바인딩의 서비스 이름과 다릅니다. 서비스 바인딩 편집기의 Service 이름과 버전(`0001`)을 확인하세요.
 - `create_resource_for_entity_set( 'Travel' )`에서 오류: 서비스 정의의 `expose ... as Travel` 이름과 대소문자까지 같아야 합니다.
 - 같은 테이블이 CDS 환경(`i_select_base_dependencies`로 자동 포함)과 SQL 환경 양쪽에 들어가면 환경 생성 때 오류가 날 수 있습니다. 그 테이블을 SQL 환경 목록에서 빼고 `cds_test_environment->insert_test_data`로 넣으세요.
+
+</details>
+
+#### 12단계. (도전 ★★★★) 채점기 만들기: 내부 테이블 차이 리포트와 순서 무관 비교 (RTTS)
+
+> SQL 고난도 단원(R-19~R-22)의 채점기를 더 쓸 만하게 만드는 도전 단계입니다. `assert_equals`는 "다르다"는 것만 알려 주고, 결과가 수십 행이면 어디가 틀렸는지 찾기 어렵습니다.
+
+요구사항
+1. 클래스 `ZCL_SQ_TABLE_DIFF_###`(PUBLIC FINAL CREATE PUBLIC)에 정적 메서드 `compare`를 만드세요.
+   - 입력: `act`, `exp`(둘 다 `STANDARD TABLE`, 같은 행 타입의 **평면 구조**), `ordered`(기본 `abap_true`), `max_messages`(기본 10).
+   - 출력: `string_table`. 같으면 빈 테이블. 다르면 사람이 읽을 수 있는 차이 목록:
+     - 행 수가 다르면 `rows: actual N, expected M`
+     - 행마다 열 단위로 `row 3 NET_VALUE: actual "1815.00" expected "1914.00"`
+     - 한쪽에만 있는 행은 `row 7: missing in actual` / `row 7: unexpected in actual`
+   - `ordered = abap_false`면 비교 전에 두 테이블을 **모든 열 기준으로 정렬**해 순서 차이를 무시합니다(입력 테이블은 바꾸지 않음).
+   - 메시지가 `max_messages`개를 넘으면 `...` 한 줄을 붙이고 멈춥니다.
+2. 행 타입을 미리 알 수 없으므로 RTTS(`cl_abap_typedescr` 계열)로 열 목록을 얻고, `ASSIGN COMPONENT`로 값을 꺼내세요.
+3. 이 클래스의 Test Classes 탭에 자기 테스트 `ltc_diff`를 만드세요: 같음 → 빈 결과, 값 하나 다름 → 그 열 이름이 들어간 메시지 1줄, 행 순서만 다름 → `ordered = abap_true`면 차이, `abap_false`면 빈 결과, 행 하나 더 있음 → `rows:` 메시지와 `unexpected` 메시지.
+4. R-19 채점기 `ltc_grade`에 도우미 메서드 `check( act exp msg )`를 만들어, 차이가 있으면 `cl_abap_unit_assert=>fail`에 차이 목록을 이어 붙여 넘기도록 Q01~Q20 테스트를 바꿔 보세요.
+
+**확인**
+- `ltc_diff`의 테스트가 모두 초록입니다.
+- Q01의 `ORDER BY`를 일부러 지우고 채점하면 실패 메시지에 `row 1 LIFNR: actual "V100" expected "V300"`처럼 **어느 행 어느 열**인지 나옵니다.
+
+<details><summary>정답·해설</summary>
+
+```abap
+CLASS zcl_sq_table_diff_### DEFINITION
+  PUBLIC
+  FINAL
+  CREATE PUBLIC.
+
+  PUBLIC SECTION.
+    CLASS-METHODS compare
+      IMPORTING act           TYPE STANDARD TABLE
+                exp           TYPE STANDARD TABLE
+                ordered       TYPE abap_bool DEFAULT abap_true
+                max_messages  TYPE i DEFAULT 10
+      RETURNING VALUE(result) TYPE string_table.
+
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+ENDCLASS.
+
+
+CLASS zcl_sq_table_diff_### IMPLEMENTATION.
+
+  METHOD compare.
+    FIELD-SYMBOLS <act> TYPE STANDARD TABLE.
+    FIELD-SYMBOLS <exp> TYPE STANDARD TABLE.
+    DATA lr_act TYPE REF TO data.
+    DATA lr_exp TYPE REF TO data.
+
+    " 입력을 바꾸지 않도록 복사본을 만든다
+    CREATE DATA lr_act LIKE act.
+    CREATE DATA lr_exp LIKE exp.
+    ASSIGN lr_act->* TO <act>.
+    ASSIGN lr_exp->* TO <exp>.
+    <act> = act.
+    <exp> = exp.
+
+    " RTTS: 행 구조의 열 목록
+    DATA(lo_table) = CAST cl_abap_tabledescr( cl_abap_typedescr=>describe_by_data( act ) ).
+    DATA(lo_line)  = CAST cl_abap_structdescr( lo_table->get_table_line_type( ) ).
+    DATA(lt_comp)  = lo_line->get_components( ).
+
+    IF ordered = abap_false.
+      DATA(lt_order) = VALUE abap_sortorder_tab( FOR c IN lt_comp ( name = c-name ) ).
+      SORT <act> BY (lt_order).
+      SORT <exp> BY (lt_order).
+    ENDIF.
+
+    IF lines( <act> ) <> lines( <exp> ).
+      APPEND |rows: actual { lines( <act> ) }, expected { lines( <exp> ) }| TO result.
+    ENDIF.
+
+    DO nmax( val1 = lines( <act> ) val2 = lines( <exp> ) ) TIMES.
+      DATA(lv_row) = sy-index.
+      IF lines( result ) >= max_messages.
+        APPEND `...` TO result.
+        RETURN.
+      ENDIF.
+
+      IF lv_row > lines( <act> ).
+        APPEND |row { lv_row }: missing in actual| TO result.
+        CONTINUE.
+      ELSEIF lv_row > lines( <exp> ).
+        APPEND |row { lv_row }: unexpected in actual| TO result.
+        CONTINUE.
+      ENDIF.
+
+      ASSIGN <act>[ lv_row ] TO FIELD-SYMBOL(<a>).
+      ASSIGN <exp>[ lv_row ] TO FIELD-SYMBOL(<e>).
+      CHECK <a> <> <e>.
+
+      LOOP AT lt_comp INTO DATA(ls_comp).
+        ASSIGN COMPONENT ls_comp-name OF STRUCTURE <a> TO FIELD-SYMBOL(<va>).
+        ASSIGN COMPONENT ls_comp-name OF STRUCTURE <e> TO FIELD-SYMBOL(<ve>).
+        IF <va> <> <ve>.
+          APPEND |row { lv_row } { ls_comp-name }: actual "{ <va> }" expected "{ <ve> }"| TO result.
+        ENDIF.
+      ENDLOOP.
+    ENDDO.
+  ENDMETHOD.
+
+ENDCLASS.
+```
+
+```abap
+CLASS ltc_diff DEFINITION FINAL FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+    TYPES: BEGIN OF ty_row,
+             id    TYPE c LENGTH 4,
+             value TYPE p LENGTH 8 DECIMALS 2,
+           END OF ty_row,
+           tt_row TYPE STANDARD TABLE OF ty_row WITH EMPTY KEY.
+    DATA base TYPE tt_row.
+
+    METHODS setup.
+    METHODS equal_gives_nothing   FOR TESTING.
+    METHODS value_diff_names_col  FOR TESTING.
+    METHODS order_matters_or_not  FOR TESTING.
+    METHODS extra_row             FOR TESTING.
+ENDCLASS.
+
+
+CLASS ltc_diff IMPLEMENTATION.
+
+  METHOD setup.
+    base = VALUE #( ( id = 'A' value = '1.00' ) ( id = 'B' value = '2.00' ) ( id = 'C' value = '3.00' ) ).
+  ENDMETHOD.
+
+  METHOD equal_gives_nothing.
+    cl_abap_unit_assert=>assert_initial( zcl_sq_table_diff_###=>compare( act = base exp = base ) ).
+  ENDMETHOD.
+
+  METHOD value_diff_names_col.
+    DATA(act) = base.
+    act[ 2 ]-value = '9.99'.
+    DATA(diff) = zcl_sq_table_diff_###=>compare( act = act exp = base ).
+    cl_abap_unit_assert=>assert_equals( act = lines( diff ) exp = 1 ).
+    cl_abap_unit_assert=>assert_char_cp( act = diff[ 1 ] exp = '*row 2 VALUE*9.99*2.00*' ).
+  ENDMETHOD.
+
+  METHOD order_matters_or_not.
+    DATA(act) = VALUE tt_row( ( base[ 3 ] ) ( base[ 1 ] ) ( base[ 2 ] ) ).
+    cl_abap_unit_assert=>assert_not_initial( zcl_sq_table_diff_###=>compare( act = act exp = base ) ).
+    cl_abap_unit_assert=>assert_initial( zcl_sq_table_diff_###=>compare( act = act exp = base ordered = abap_false ) ).
+  ENDMETHOD.
+
+  METHOD extra_row.
+    DATA(act) = base.
+    APPEND VALUE #( id = 'D' value = '4.00' ) TO act.
+    DATA(diff) = zcl_sq_table_diff_###=>compare( act = act exp = base ).
+    cl_abap_unit_assert=>assert_char_cp( act = diff[ 1 ] exp = 'rows: actual 4, expected 3' ).
+    cl_abap_unit_assert=>assert_char_cp( act = diff[ 2 ] exp = 'row 4: unexpected*' ).
+  ENDMETHOD.
+
+ENDCLASS.
+```
+
+R-19 채점기에서 쓰기:
+
+```abap
+  " ltc_grade PRIVATE SECTION
+    METHODS check
+      IMPORTING act TYPE STANDARD TABLE
+                exp TYPE STANDARD TABLE
+                msg TYPE csequence.
+
+  METHOD check.
+    DATA(diff) = zcl_sq_table_diff_###=>compare( act = act exp = exp ).
+    IF diff IS NOT INITIAL.
+      cl_abap_unit_assert=>fail( msg    = |{ msg }: { concat_lines_of( table = diff sep = ` | ` ) }|
+                                 detail = concat_lines_of( table = diff sep = cl_abap_char_utilities=>newline ) ).
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD q01.
+    DATA(exp) = VALUE zcl_sq_queries_###=>tt_q01( ... ).
+    check( act = cut->q01( ) exp = exp msg = 'Q01' ).
+  ENDMETHOD.
+```
+
+왜 이렇게 쓰나
+- **RTTS**: `describe_by_data`로 받은 타입 설명에서 테이블 → 행 타입 → 구조 열 목록 순으로 내려갑니다. 이 정보로 정렬 순서표(`abap_sortorder_tab`)를 만들고(`SORT … BY (otab)`), `ASSIGN COMPONENT 이름 OF STRUCTURE`로 열 값을 꺼냅니다. 행 타입을 모르는 범용 도구는 모두 이 패턴입니다.
+- **복사본**: `IMPORTING` 파라미터는 바꿀 수 없고, 바꿀 수 있더라도 호출자의 테이블을 정렬해 버리면 부작용입니다. `CREATE DATA … LIKE`로 같은 타입의 새 테이블을 만들어 복사한 뒤 정렬합니다.
+- **평면 구조만**: 열에 내부 테이블이나 참조가 있으면 문자열 템플릿(`{ <va> }`)과 정렬이 안 됩니다. 이 채점기의 결과 타입은 모두 평면 구조라서 범위를 좁혔습니다. 깊은 구조까지 다루려면 `cl_abap_typedescr=>kind_table`일 때 재귀로 내려가야 합니다.
+- **순서 무관 비교가 필요한 때**: `GROUPING SETS`나 동점이 있는 쿼리처럼 정렬이 DB마다 다를 수 있는 결과를 채점할 때입니다. 다만 문항이 정렬을 요구하면 순서도 채점해야 하므로 기본값은 `ordered = abap_true`로 두었습니다.
+- `assert_equals`도 내부적으로 비슷한 차이 표를 만들어 ADT에 보여 줍니다. 직접 만든 리포트의 장점은 **콘솔·로그·잡 결과**처럼 ADT 밖에서도 같은 형식의 차이를 남길 수 있다는 점입니다(예: R-22 4단계의 교차 검증 출력).
 
 </details>
 

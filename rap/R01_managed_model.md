@@ -1,7 +1,7 @@
 ## 1. 관리형(Managed) BO와 Draft
 
 ### R-01. Travel 앱 골격: 테이블부터 Fiori 미리보기까지 [작성] ★★
-<!-- covers: DDIC 테이블, 데이터 생성 클래스, root view entity, composition, association to parent, @Semantics, LOB, projection view, transactional_query, value help, additionalBinding, useForValidation, text element, localized, @Search, semanticKey, metadata extension, @UI.headerInfo, @UI.facet, lineItem, identification, fieldGroup, dataPoint, criticality, textArrangement, multiLineText, virtual element, managed BDEF, strict(2), with draft, draft table, late numbering, adjust_numbers, lock master, total etag, etag master, global authorization, projection BDEF, service definition, service binding, OData V4 -->
+<!-- covers: DDIC 테이블, 데이터 생성 클래스, root view entity, composition, association to parent, @Semantics, LOB, projection view, transactional_query, value help, additionalBinding, useForValidation, text element, localized, @Search, semanticKey, metadata extension, @UI.headerInfo, @UI.facet, lineItem, identification, fieldGroup, dataPoint, criticality, textArrangement, multiLineText, virtual element, managed BDEF, strict(2), with draft, draft table, late numbering, adjust_numbers, lock master, total etag, etag master, global authorization, projection BDEF, service definition, service binding, OData V4, 데이터 품질 SQL(도전), 팬아웃 방지 집계, STRING_AGG, SQL 테스트 더블 고정 데이터 -->
 
 **목표**
 - Travel(여행)과 Booking(예약) 두 엔터티로 이루어진 관리형(managed) RAP BO를 테이블부터 직접 만들 수 있습니다.
@@ -1505,6 +1505,218 @@ define service ZRAP_UI_TRAVEL_### {
 - Publish가 회색이면 서비스 정의·바인딩이 활성화되지 않은 상태입니다. 둘 다 활성화하세요.
 - 미리보기가 "Unauthorized" 또는 빈 화면이면 브라우저에서 BTP 계정으로 다시 로그인하세요.
 - 저장 시 "draft 테이블 구조가 맞지 않다"는 오류가 나면 CDS에 필드를 추가한 뒤 draft 테이블을 다시 만들지 않은 경우입니다. 8단계 퀵 픽스 "Recreate draft table"을 실행하세요.
+
+</details>
+
+#### 12단계. (도전 ★★★★) 데이터 품질 SQL: 총액 정합성·중복 예약 찾기와 채점 테스트
+
+> R-19~R-22(SQL 고난도 단원)의 방식을 이 BO 테이블에 적용하는 도전 단계입니다. R-02까지 끝낸 뒤 풀면 좋습니다.
+
+요구사항
+1. 클래스 `ZCL_RAP_DQ_###`(PUBLIC FINAL CREATE PUBLIC)에 **SQL 한 번씩으로** 두 점검 메서드를 만드세요. 결과 타입은 클래스 안에 정의합니다.
+   - `check_totals`: 활성 테이블 기준으로 `total_price`가 `booking_fee + 같은 통화 Booking의 flight_price 합계`와 다른 Travel을 찾습니다. Booking 중 Travel과 **통화가 다른 것이 하나라도 있으면** 환산 없이는 판단할 수 없으므로 `status = 'MIXED_CURRENCY'`, 아니면 `'MISMATCH'`. Booking이 없는 Travel도 검사합니다(총액 = 수수료여야 함). 결과 열: `travel_id`, `booking_fee`, `total_price`, `expected_total`(같은 통화 기준), `diff`(= total − expected), `status`. 정렬: `travel_id`. 취소된 Booking도 R-02 규칙대로 총액에 들어갑니다.
+   - `check_double_bookings`: 취소(`X`)되지 않은 Booking 중 **같은 고객이 같은 항공편(항공사·노선·날짜)을 두 번 이상** 예약한 경우. 결과 열: `customer_id`, `carrier_id`, `connection_id`, `flight_date`, `booking_cnt`, `travel_list`(관련 Travel 번호를 오름차순으로 쉼표로 이은 문자열). 정렬: 앞 네 열.
+2. 같은 클래스의 Test Classes 탭에 `ltc_dq`를 만들고, `cl_osql_test_environment`로 `ZRAP_ATRAV_###`·`ZRAP_ABOOK_###`를 대역으로 바꾼 뒤 아래 **고정 데이터**를 넣어 채점하세요.
+
+고정 데이터 (Travel)
+
+| travel_id | customer_id | booking_fee | total_price | currency_code |
+|---|---|---|---|---|
+| 00000001 | 000001 | 10.00 | 110.00 | EUR |
+| 00000002 | 000001 | 20.00 | 300.00 | EUR |
+| 00000003 | 000002 | 5.00 | 5.00 | USD |
+| 00000004 | 000002 | 0.00 | 200.00 | EUR |
+| 00000005 | 000003 | 15.00 | 0.00 | EUR |
+
+고정 데이터 (Booking)
+
+| travel_id | booking_id | customer_id | carrier_id | connection_id | flight_date | flight_price | currency_code | booking_status |
+|---|---|---|---|---|---|---|---|---|
+| 00000001 | 0001 | 000001 | LH | 0400 | 20261201 | 100.00 | EUR | B |
+| 00000002 | 0001 | 000001 | LH | 0400 | 20261201 | 150.00 | EUR | B |
+| 00000002 | 0002 | 000002 | AA | 0017 | 20261205 | 100.00 | EUR | B |
+| 00000004 | 0001 | 000002 | AA | 0017 | 20261205 | 120.00 | EUR | X |
+| 00000004 | 0002 | 000003 | UA | 0058 | 20261210 | 80.00 | USD | N |
+
+기대 결과 `check_totals`
+
+| travel_id | booking_fee | total_price | expected_total | diff | status |
+|---|---|---|---|---|---|
+| 00000002 | 20.00 | 300.00 | 270.00 | 30.00 | MISMATCH |
+| 00000004 | 0.00 | 200.00 | 120.00 | 80.00 | MIXED_CURRENCY |
+| 00000005 | 15.00 | 0.00 | 15.00 | -15.00 | MISMATCH |
+
+기대 결과 `check_double_bookings`
+
+| customer_id | carrier_id | connection_id | flight_date | booking_cnt | travel_list |
+|---|---|---|---|---|---|
+| 000001 | LH | 0400 | 20261201 | 2 | 00000001,00000002 |
+
+**확인**
+- ABAP Unit 두 테스트가 초록입니다.
+- 콘솔(`main`)로 실제 데이터에 돌려 보세요. R-02의 결정이 제대로 동작했다면 `check_totals`에는 통화가 섞인 Travel(`MIXED_CURRENCY`)만 나와야 합니다. `MISMATCH`가 나오면 결정 로직이나 직접 수정한 데이터를 의심하세요.
+
+<details><summary>정답·해설</summary>
+
+```abap
+CLASS zcl_rap_dq_### DEFINITION
+  PUBLIC
+  FINAL
+  CREATE PUBLIC.
+
+  PUBLIC SECTION.
+    INTERFACES if_oo_adt_classrun.
+
+    TYPES ty_amount TYPE p LENGTH 16 DECIMALS 2.
+    TYPES: BEGIN OF ty_total,
+             travel_id      TYPE /dmo/travel_id,
+             booking_fee    TYPE ty_amount,
+             total_price    TYPE ty_amount,
+             expected_total TYPE ty_amount,
+             diff           TYPE ty_amount,
+             status         TYPE c LENGTH 14,
+           END OF ty_total,
+           tt_total TYPE STANDARD TABLE OF ty_total WITH EMPTY KEY.
+    TYPES: BEGIN OF ty_dup,
+             customer_id   TYPE /dmo/customer_id,
+             carrier_id    TYPE /dmo/carrier_id,
+             connection_id TYPE /dmo/connection_id,
+             flight_date   TYPE /dmo/flight_date,
+             booking_cnt   TYPE i,
+             travel_list   TYPE string,
+           END OF ty_dup,
+           tt_dup TYPE STANDARD TABLE OF ty_dup WITH EMPTY KEY.
+
+    METHODS check_totals          RETURNING VALUE(result) TYPE tt_total.
+    METHODS check_double_bookings RETURNING VALUE(result) TYPE tt_dup.
+
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+ENDCLASS.
+
+
+CLASS zcl_rap_dq_### IMPLEMENTATION.
+
+  METHOD if_oo_adt_classrun~main.
+    out->write( name = 'Totals'          data = check_totals( ) ).
+    out->write( name = 'Double bookings' data = check_double_bookings( ) ).
+  ENDMETHOD.
+
+  METHOD check_totals.
+    WITH
+      +b AS ( SELECT FROM zrap_abook_### AS b
+                INNER JOIN zrap_atrav_### AS t ON t~travel_id = b~travel_id
+                FIELDS b~travel_id,
+                       SUM( CASE WHEN b~currency_code = t~currency_code
+                                 THEN CAST( b~flight_price AS DEC( 16, 2 ) ) ELSE 0 END ) AS same_cur_sum,
+                       SUM( CASE WHEN b~currency_code <> t~currency_code THEN 1 ELSE 0 END ) AS other_cur_cnt
+                GROUP BY b~travel_id ),
+      +c AS ( SELECT FROM zrap_atrav_### AS t
+                LEFT OUTER JOIN +b AS x ON x~travel_id = t~travel_id
+                FIELDS t~travel_id,
+                       CAST( t~booking_fee AS DEC( 16, 2 ) )                                 AS booking_fee,
+                       CAST( t~total_price AS DEC( 16, 2 ) )                                 AS total_price,
+                       CAST( t~booking_fee AS DEC( 16, 2 ) ) + COALESCE( x~same_cur_sum, 0 ) AS expected_total,
+                       COALESCE( x~other_cur_cnt, 0 )                                        AS other_cur_cnt )
+      SELECT FROM +c
+        FIELDS travel_id, booking_fee, total_price, expected_total,
+               total_price - expected_total AS diff,
+               CASE WHEN other_cur_cnt > 0 THEN 'MIXED_CURRENCY' ELSE 'MISMATCH' END AS status
+        WHERE other_cur_cnt > 0
+           OR total_price <> expected_total
+        ORDER BY travel_id
+        INTO CORRESPONDING FIELDS OF TABLE @result.
+  ENDMETHOD.
+
+  METHOD check_double_bookings.
+    SELECT FROM zrap_abook_###
+      FIELDS customer_id, carrier_id, connection_id, flight_date,
+             COUNT( * ) AS booking_cnt,
+             STRING_AGG( CAST( travel_id AS CHAR( 8 ) ), ',' ORDER BY travel_id ) AS travel_list
+      WHERE booking_status <> 'X'
+      GROUP BY customer_id, carrier_id, connection_id, flight_date
+      HAVING COUNT( * ) >= 2
+      ORDER BY customer_id, carrier_id, connection_id, flight_date
+      INTO CORRESPONDING FIELDS OF TABLE @result.
+  ENDMETHOD.
+
+ENDCLASS.
+```
+
+Test Classes 탭:
+
+```abap
+CLASS ltc_dq DEFINITION FINAL FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+    CLASS-DATA env TYPE REF TO if_osql_test_environment.
+    CLASS-METHODS class_setup.
+    CLASS-METHODS class_teardown.
+    METHODS totals FOR TESTING.
+    METHODS double_bookings FOR TESTING.
+ENDCLASS.
+
+
+CLASS ltc_dq IMPLEMENTATION.
+
+  METHOD class_setup.
+    env = cl_osql_test_environment=>create(
+            i_dependency_list = VALUE #( ( 'ZRAP_ATRAV_###' ) ( 'ZRAP_ABOOK_###' ) ) ).
+
+    DATA lt_trav TYPE STANDARD TABLE OF zrap_atrav_### WITH EMPTY KEY.
+    lt_trav = VALUE #(
+      ( travel_id = '00000001' customer_id = '000001' booking_fee = '10.00' total_price = '110.00' currency_code = 'EUR' )
+      ( travel_id = '00000002' customer_id = '000001' booking_fee = '20.00' total_price = '300.00' currency_code = 'EUR' )
+      ( travel_id = '00000003' customer_id = '000002' booking_fee = '5.00'  total_price = '5.00'   currency_code = 'USD' )
+      ( travel_id = '00000004' customer_id = '000002' booking_fee = '0.00'  total_price = '200.00' currency_code = 'EUR' )
+      ( travel_id = '00000005' customer_id = '000003' booking_fee = '15.00' total_price = '0.00'   currency_code = 'EUR' ) ).
+    env->insert_test_data( lt_trav ).
+
+    DATA lt_book TYPE STANDARD TABLE OF zrap_abook_### WITH EMPTY KEY.
+    lt_book = VALUE #(
+      ( travel_id = '00000001' booking_id = '0001' customer_id = '000001' carrier_id = 'LH' connection_id = '0400'
+        flight_date = '20261201' flight_price = '100.00' currency_code = 'EUR' booking_status = 'B' )
+      ( travel_id = '00000002' booking_id = '0001' customer_id = '000001' carrier_id = 'LH' connection_id = '0400'
+        flight_date = '20261201' flight_price = '150.00' currency_code = 'EUR' booking_status = 'B' )
+      ( travel_id = '00000002' booking_id = '0002' customer_id = '000002' carrier_id = 'AA' connection_id = '0017'
+        flight_date = '20261205' flight_price = '100.00' currency_code = 'EUR' booking_status = 'B' )
+      ( travel_id = '00000004' booking_id = '0001' customer_id = '000002' carrier_id = 'AA' connection_id = '0017'
+        flight_date = '20261205' flight_price = '120.00' currency_code = 'EUR' booking_status = 'X' )
+      ( travel_id = '00000004' booking_id = '0002' customer_id = '000003' carrier_id = 'UA' connection_id = '0058'
+        flight_date = '20261210' flight_price = '80.00'  currency_code = 'USD' booking_status = 'N' ) ).
+    env->insert_test_data( lt_book ).
+  ENDMETHOD.
+
+  METHOD class_teardown.
+    env->destroy( ).
+  ENDMETHOD.
+
+  METHOD totals.
+    DATA(exp) = VALUE zcl_rap_dq_###=>tt_total(
+      ( travel_id = '00000002' booking_fee = '20.00' total_price = '300.00' expected_total = '270.00' diff = '30.00'  status = 'MISMATCH' )
+      ( travel_id = '00000004' booking_fee = '0.00'  total_price = '200.00' expected_total = '120.00' diff = '80.00'  status = 'MIXED_CURRENCY' )
+      ( travel_id = '00000005' booking_fee = '15.00' total_price = '0.00'   expected_total = '15.00'  diff = '-15.00' status = 'MISMATCH' ) ).
+    cl_abap_unit_assert=>assert_equals( act = NEW zcl_rap_dq_###( )->check_totals( ) exp = exp ).
+  ENDMETHOD.
+
+  METHOD double_bookings.
+    DATA(exp) = VALUE zcl_rap_dq_###=>tt_dup(
+      ( customer_id = '000001' carrier_id = 'LH' connection_id = '0400' flight_date = '20261201'
+        booking_cnt = 2 travel_list = `00000001,00000002` ) ).
+    cl_abap_unit_assert=>assert_equals( act = NEW zcl_rap_dq_###( )->check_double_bookings( ) exp = exp ).
+  ENDMETHOD.
+
+ENDCLASS.
+```
+
+왜 이렇게 쓰나
+- **팬아웃 방지**: Travel과 Booking을 바로 조인한 뒤 `booking_fee`를 합치면 Booking 수만큼 수수료가 여러 번 더해집니다. Booking을 **먼저 Travel 단위로 집계**(`+b`)하고 나서 Travel에 붙였습니다. 1:N 조인 후 1쪽 값을 집계하는 실수는 실무 리포트 오류 1위입니다.
+- Booking이 없는 Travel(`00000003`, `00000005`)도 검사하려면 Travel을 왼쪽에 두고 LEFT JOIN 해야 합니다. 합계가 NULL이므로 `COALESCE( …, 0 )`이 꼭 필요합니다. 여기서는 NULL이 산술(`booking_fee + NULL`)에 들어가서 **결과 전체가 NULL**이 되기 때문에, Q01처럼 "ABAP 초기값으로 저절로 0"이 되지 않습니다. `00000005`가 결과에서 빠지면 이 부분을 확인하세요.
+- `STRING_AGG( 식, 구분자 ORDER BY … )`는 그룹 안의 값을 문자열 하나로 잇습니다. 숫자형(NUMC)은 문자로 바꿔 넣었습니다. 지원하지 않는 릴리스라면 `MIN( travel_id )`·`MAX( travel_id )` 두 열로 대신하세요(실제 시스템에서 확인 필요).
+- 통화 환산이 필요한 비교는 SQL에서 억지로 하지 말고 "판단 불가"로 따로 표시했습니다. 환산이 필요하면 `CURRENCY_CONVERSION( )` SQL 함수나 R-02에서 쓴 `/DMO/CL_FLIGHT_AMDP=>CONVERT_CURRENCY`를 씁니다.
+- 테스트는 실제 Travel 데이터(무작위 생성)에 의존하지 않도록 SQL 테스트 더블에 **작은 고정 데이터**를 넣었습니다. 데이터 한 줄 한 줄이 규칙 하나씩을 검사하도록 설계한 것입니다(정상, 불일치, Booking 없음, 통화 혼합, 취소 제외).
 
 </details>
 

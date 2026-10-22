@@ -2032,7 +2032,7 @@ ENDCLASS.
 </details>
 
 ### R-04. 저장 시퀀스 완전 정복: late numbering·추가 저장·비즈니스 이벤트·unmanaged save [작성] ★★★
-<!-- covers: RAP transaction, interaction phase, early save phase, late save phase, point of no return, finalize, check_before_save, cleanup_finalize, adjust_numbers, save, save_modified, cleanup, COMMIT ENTITIES, COMMIT ENTITIES BEGIN END, CONVERT KEY, IN SIMULATION MODE, ROLLBACK ENTITIES, controlled SAP LUW, cl_abap_tx, BEHAVIOR_ILLEGAL_STMT_IN_CALL, late numbering, %pid, %tmp, %pre, DRAFTUUID, PARENTDRAFTUUID, number range object, cl_numberrange_runtime, READ BY association LINK, with additional save, with full data, REQUEST FOR CHANGE, %control, RTTI, change log, business event, event parameter, RAISE ENTITY EVENT, FOR EVENTS OF, cl_abap_behavior_event_handler, FOR ENTITY EVENT, event binding, SAP Event Mesh, managed event, event for side effects, with unmanaged save, and cleanup, MAPPING FROM ENTITY, INDICATORS SET STRUCTURE -->
+<!-- covers: RAP transaction, interaction phase, early save phase, late save phase, point of no return, finalize, check_before_save, cleanup_finalize, adjust_numbers, save, save_modified, cleanup, COMMIT ENTITIES, COMMIT ENTITIES BEGIN END, CONVERT KEY, IN SIMULATION MODE, ROLLBACK ENTITIES, controlled SAP LUW, cl_abap_tx, BEHAVIOR_ILLEGAL_STMT_IN_CALL, late numbering, %pid, %tmp, %pre, DRAFTUUID, PARENTDRAFTUUID, number range object, cl_numberrange_runtime, READ BY association LINK, with additional save, with full data, REQUEST FOR CHANGE, %control, RTTI, change log, business event, event parameter, RAISE ENTITY EVENT, FOR EVENTS OF, cl_abap_behavior_event_handler, FOR ENTITY EVENT, event binding, SAP Event Mesh, managed event, event for side effects, with unmanaged save, and cleanup, MAPPING FROM ENTITY, INDICATORS SET STRUCTURE, 번호 감사 SQL(도전), LEAD, ROW_NUMBER 빈 번호 찾기 -->
 **목표**
 - RAP 트랜잭션의 단계(인터랙션 → early save → late save)와 각 saver 메서드가 불리는 순서를 설명하고, 단계마다 금지된 문장을 압니다.
 - late numbering을 번호 범위 객체로 구현하고, 자식(Booking) 번호를 부모별로 매길 수 있습니다.
@@ -3592,6 +3592,182 @@ additional save와 unmanaged save 비교
 클래스 구조 해설
 - `write_travel_data`의 파라미터 타입 `REQUEST FOR CHANGE zrap_r_travel_###`/`REQUEST FOR DELETE zrap_r_travel_###`는 `save_modified`의 파라미터와 같은 BDEF 파생 타입이라 그대로 넘길 수 있습니다(cheat sheet 08 BDEF 파생 타입 표).
 - 호출 순서(unmanaged save): `adjust_numbers` → `save_modified`(내 저장) → `cleanup`. `cleanup`은 `ROLLBACK ENTITIES` 때도 불립니다.
+
+</details>
+
+#### 11단계. (도전 ★★★★) 번호 감사 SQL: 빈 번호 구간과 Booking 번호 끊김 찾기
+
+> SQL 고난도 단원(R-19~R-22)의 윈도 함수(`LEAD`, `ROW_NUMBER`)를 번호 매기기 검증에 쓰는 도전 단계입니다.
+
+요구사항
+1. 클래스 `ZCL_RAP_NR_AUDIT_###`에 두 메서드를 만드세요(각각 SQL 한 번).
+   - `travel_gaps`: 활성 Travel 번호에서 **빠진 번호 구간**을 찾습니다. 결과 열: `gap_from`, `gap_to`, `missing_cnt`(모두 `i`). 정렬: `gap_from`. 첫 번호 앞쪽(1부터 최솟값 전)은 보지 않습니다.
+   - `booking_breaks`: Travel마다 Booking 번호가 **1부터 빈틈없이** 이어지지 않은 Travel. 결과 열: `travel_id`, `booking_cnt`, `max_booking_id`, `first_missing`(처음으로 빠진 번호). 정렬: `travel_id`.
+2. Test Classes 탭 `ltc_audit`에서 `cl_osql_test_environment`로 아래 고정 데이터를 넣고 채점하세요.
+3. 해설 질문: 4단계 설계(Booking 번호는 Travel별 MAX+1)에서 `booking_breaks`에 결과가 나온다면 무엇이 원인일 수 있나요? Travel 번호 빈 구간은 버그인가요?
+
+고정 데이터
+
+| 테이블 | 데이터 |
+|---|---|
+| Travel `travel_id` | 00000001, 00000002, 00000003, 00000007, 00000008, 00000012 |
+| Booking (`travel_id`: `booking_id`들) | 00000001: 0001, 0002, 0003 / 00000002: 0001, 0003 / 00000003: 0002 / 00000007: 0001 |
+
+기대 결과 `travel_gaps`
+
+| gap_from | gap_to | missing_cnt |
+|---|---|---|
+| 4 | 6 | 3 |
+| 9 | 11 | 3 |
+
+기대 결과 `booking_breaks`
+
+| travel_id | booking_cnt | max_booking_id | first_missing |
+|---|---|---|---|
+| 00000002 | 2 | 3 | 2 |
+| 00000003 | 1 | 2 | 1 |
+
+<details><summary>정답·해설</summary>
+
+```abap
+CLASS zcl_rap_nr_audit_### DEFINITION
+  PUBLIC
+  FINAL
+  CREATE PUBLIC.
+
+  PUBLIC SECTION.
+    INTERFACES if_oo_adt_classrun.
+
+    TYPES: BEGIN OF ty_gap,
+             gap_from    TYPE i,
+             gap_to      TYPE i,
+             missing_cnt TYPE i,
+           END OF ty_gap,
+           tt_gap TYPE STANDARD TABLE OF ty_gap WITH EMPTY KEY.
+    TYPES: BEGIN OF ty_break,
+             travel_id      TYPE /dmo/travel_id,
+             booking_cnt    TYPE i,
+             max_booking_id TYPE i,
+             first_missing  TYPE i,
+           END OF ty_break,
+           tt_break TYPE STANDARD TABLE OF ty_break WITH EMPTY KEY.
+
+    METHODS travel_gaps    RETURNING VALUE(result) TYPE tt_gap.
+    METHODS booking_breaks RETURNING VALUE(result) TYPE tt_break.
+
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+ENDCLASS.
+
+
+CLASS zcl_rap_nr_audit_### IMPLEMENTATION.
+
+  METHOD if_oo_adt_classrun~main.
+    out->write( name = 'Travel ID gaps'  data = travel_gaps( ) ).
+    out->write( name = 'Booking breaks'  data = booking_breaks( ) ).
+  ENDMETHOD.
+
+  METHOD travel_gaps.
+    WITH
+      +t AS ( SELECT FROM zrap_atrav_###
+                FIELDS CAST( travel_id AS INT4 ) AS id ),
+      +n AS ( SELECT FROM +t
+                FIELDS id,
+                       LEAD( id ) OVER( ORDER BY id ) AS next_id )
+      SELECT FROM +n
+        FIELDS id + 1           AS gap_from,
+               next_id - 1      AS gap_to,
+               next_id - id - 1 AS missing_cnt
+        WHERE next_id - id > 1
+        ORDER BY gap_from
+        INTO CORRESPONDING FIELDS OF TABLE @result.
+  ENDMETHOD.
+
+  METHOD booking_breaks.
+    WITH
+      +b AS ( SELECT FROM zrap_abook_###
+                FIELDS travel_id,
+                       CAST( booking_id AS INT4 ) AS bid,
+                       ROW_NUMBER( ) OVER( PARTITION BY travel_id ORDER BY booking_id ) AS rn )
+      SELECT FROM +b
+        FIELDS travel_id,
+               COUNT( * )                             AS booking_cnt,
+               MAX( bid )                             AS max_booking_id,
+               MIN( CASE WHEN bid <> rn THEN rn END ) AS first_missing
+        GROUP BY travel_id
+        HAVING MAX( bid ) <> COUNT( * )
+        ORDER BY travel_id
+        INTO CORRESPONDING FIELDS OF TABLE @result.
+  ENDMETHOD.
+
+ENDCLASS.
+```
+
+```abap
+CLASS ltc_audit DEFINITION FINAL FOR TESTING
+  DURATION SHORT
+  RISK LEVEL HARMLESS.
+
+  PRIVATE SECTION.
+    CLASS-DATA env TYPE REF TO if_osql_test_environment.
+    CLASS-METHODS class_setup.
+    CLASS-METHODS class_teardown.
+    METHODS gaps FOR TESTING.
+    METHODS breaks FOR TESTING.
+ENDCLASS.
+
+
+CLASS ltc_audit IMPLEMENTATION.
+
+  METHOD class_setup.
+    env = cl_osql_test_environment=>create(
+            i_dependency_list = VALUE #( ( 'ZRAP_ATRAV_###' ) ( 'ZRAP_ABOOK_###' ) ) ).
+
+    DATA lt_trav TYPE STANDARD TABLE OF zrap_atrav_### WITH EMPTY KEY.
+    lt_trav = VALUE #( ( travel_id = '00000001' ) ( travel_id = '00000002' ) ( travel_id = '00000003' )
+                       ( travel_id = '00000007' ) ( travel_id = '00000008' ) ( travel_id = '00000012' ) ).
+    env->insert_test_data( lt_trav ).
+
+    DATA lt_book TYPE STANDARD TABLE OF zrap_abook_### WITH EMPTY KEY.
+    lt_book = VALUE #( ( travel_id = '00000001' booking_id = '0001' )
+                       ( travel_id = '00000001' booking_id = '0002' )
+                       ( travel_id = '00000001' booking_id = '0003' )
+                       ( travel_id = '00000002' booking_id = '0001' )
+                       ( travel_id = '00000002' booking_id = '0003' )
+                       ( travel_id = '00000003' booking_id = '0002' )
+                       ( travel_id = '00000007' booking_id = '0001' ) ).
+    env->insert_test_data( lt_book ).
+  ENDMETHOD.
+
+  METHOD class_teardown.
+    env->destroy( ).
+  ENDMETHOD.
+
+  METHOD gaps.
+    cl_abap_unit_assert=>assert_equals(
+      act = NEW zcl_rap_nr_audit_###( )->travel_gaps( )
+      exp = VALUE zcl_rap_nr_audit_###=>tt_gap( ( gap_from = 4 gap_to = 6  missing_cnt = 3 )
+                                               ( gap_from = 9 gap_to = 11 missing_cnt = 3 ) ) ).
+  ENDMETHOD.
+
+  METHOD breaks.
+    cl_abap_unit_assert=>assert_equals(
+      act = NEW zcl_rap_nr_audit_###( )->booking_breaks( )
+      exp = VALUE zcl_rap_nr_audit_###=>tt_break(
+              ( travel_id = '00000002' booking_cnt = 2 max_booking_id = 3 first_missing = 2 )
+              ( travel_id = '00000003' booking_cnt = 1 max_booking_id = 2 first_missing = 1 ) ) ).
+  ENDMETHOD.
+
+ENDCLASS.
+```
+
+왜 이렇게 쓰나
+- **빈 구간**: 번호를 정렬하고 `LEAD`로 다음 번호를 옆에 붙이면, 차이가 1보다 큰 곳이 빈 구간입니다. 한 번의 스캔으로 끝나서 "1부터 최대값까지 숫자 테이블을 만들고 NOT EXISTS" 하는 방식보다 훨씬 가볍습니다.
+- `travel_id`는 NUMC라 산술이 안 됩니다. `CAST( … AS INT4 )`로 바꾼 뒤 계산했습니다(NUMC → INT4 캐스트는 허용).
+- **끊긴 Booking 번호**: 번호가 1부터 빈틈없이 이어지면 `ROW_NUMBER`(순번)와 실제 번호가 모든 행에서 같고, `MAX = COUNT`입니다. 처음으로 달라지는 순번이 처음 빠진 번호입니다. `CASE … END`에 `ELSE`가 없으면 NULL이 되고, `MIN`은 NULL을 건너뜁니다.
+- **해설 질문 답**
+  - `booking_breaks` 결과의 원인: Booking 삭제(번호를 다시 당기지 않음), MAX+1 방식에서 같은 Travel에 동시에 두 사용자가 Booking을 저장하다 한쪽이 실패한 경우, 데이터 복사·마이그레이션. 삭제가 허용되는 한 빈 번호 자체는 정상이고, **중복 번호**가 생기지 않는 것이 중요합니다(키라서 DB가 막음).
+  - Travel 번호 빈 구간: 번호 범위 객체를 **버퍼링**하면 서버 재시작·롤백 때 받아 둔 번호가 버려지므로 빈 번호는 정상입니다(3단계에서 번호 범위 객체 버퍼링을 허용한 선택이 바로 이 트레이드오프입니다). 송장처럼 법적으로 빈 번호가 없어야 하는 번호는 버퍼링 없이, 저장 시퀀스 안에서(late numbering) 받아야 하고, 그래도 생기는 빈 번호는 이 감사 쿼리 같은 것으로 **설명 가능한지** 확인합니다.
 
 </details>
 

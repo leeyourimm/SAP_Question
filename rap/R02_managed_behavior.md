@@ -1,7 +1,7 @@
 ## 1. 관리형(Managed) BO와 Draft
 
 ### R-02. 행동 전부 구현하기: 결정·검증·액션·함수·사이드 이펙트·Draft [작성] ★★★
-<!-- covers: 메시지 클래스, 예외 클래스, IF_ABAP_BEHV_MESSAGE, IF_T100_DYN_MSG, severity, state message, %state_area, %element, %path, 정적 필드 제어, readonly, readonly:update, mandatory, mandatory:create, suppress, strict(2), determination on modify, determination on save, 트리거 조건, internal action, validation, draft determine action Prepare, instance action, result $self, action parameter, abstract entity, default function, GetDefaultsForCreate, repeatable action, factory action, %cid, %cid_ref, mapped, static default factory action, instance function, static function, FOR READ, determine action, side effects, affects messages, affects permissions, use side effects, dynamic feature control, Edit features instance, Activate optimized, Discard, Resume with additional implementation, total etag, @UI.lineItem FOR_ACTION, @UI.identification, invocationGrouping, @Consumption.valueHelpDefinition, @EndUserText.label, projection BDEF use action, use function -->
+<!-- covers: 메시지 클래스, 예외 클래스, IF_ABAP_BEHV_MESSAGE, IF_T100_DYN_MSG, severity, state message, %state_area, %element, %path, 정적 필드 제어, readonly, readonly:update, mandatory, mandatory:create, suppress, strict(2), determination on modify, determination on save, 트리거 조건, internal action, validation, draft determine action Prepare, instance action, result $self, action parameter, abstract entity, default function, GetDefaultsForCreate, repeatable action, factory action, %cid, %cid_ref, mapped, static default factory action, instance function, static function, FOR READ, determine action, side effects, affects messages, affects permissions, use side effects, dynamic feature control, Edit features instance, Activate optimized, Discard, Resume with additional implementation, total etag, @UI.lineItem FOR_ACTION, @UI.identification, invocationGrouping, @Consumption.valueHelpDefinition, @EndUserText.label, projection BDEF use action, use function, 기간 겹침 집합 검증(도전), SELECT FROM @itab 조인 -->
 **목표**
 
 1. RAP 메시지를 예외 클래스(`ZCM_RAP_###`)로 만들고, 오류·경고·성공 메시지를 상황에 맞는 severity로 돌려줄 수 있습니다.
@@ -3647,6 +3647,157 @@ ENDCLASS.
 - 프로젝션 BDEF 활성화 오류 "action … is not defined in base" → 기본 BDEF를 먼저 활성화하세요(기본 → 행동 풀 → 프로젝션 → MDE 순서).
 - Preview에서 버튼은 보이는데 누르면 "Action not found" → 서비스 바인딩을 다시 Publish하거나(Unpublish/Publish) 브라우저 캐시를 지우세요.
 - 활성화 순서상 서로 의존해 오류가 반복되면, 기본 BDEF와 두 행동 풀을 함께 선택해 **Activate All**(Ctrl+Shift+F3)로 한 번에 활성화하세요.
+
+</details>
+
+#### 13단계. (도전 ★★★★) 집합 검증: 같은 고객의 여행 기간 겹침을 SQL 한 번으로
+
+> SQL 고난도 단원(R-19~R-22)의 자기 조인·내부 테이블 조인을 RAP 검증에 쓰는 도전 단계입니다.
+
+요구사항
+1. Travel에 검증 `validateOverlap`을 추가하세요(`on save { create; field CustomerID, BeginDate, EndDate; }`). Draft `Prepare`에도 등록합니다.
+2. 규칙: 거절(`X`)되지 않은 Travel끼리, **같은 고객의 여행 기간이 하루라도 겹치면** 오류입니다(시작일·종료일 포함). 비교 대상은 두 가지입니다.
+   - 활성 테이블(`ZRAP_ATRAV_###`)에 이미 저장된 다른 Travel
+   - **같은 저장에 함께 들어온** 다른 Travel(예: EML로 두 건을 한 번에 만들 때)
+3. 활성 테이블과의 비교는 **루프 안 SELECT 없이** SQL 한 번으로 하세요(검증 대상 내부 테이블을 데이터 소스로 조인).
+4. 메시지 190 `Customer &1 already has travel &2 in this period.`를 `ZRAP_MSG_###`에, 상수 `travel_overlap`(attr1 `MV_CUSTOMER_ID`, attr2 `MV_TRAVEL_ID`)을 `ZCM_RAP_###`에 추가합니다. state area는 `OVERLAP`.
+5. 수정 중인 기존 Travel이 **자기 자신의 활성 버전**과 겹친다고 판정되면 안 됩니다.
+
+**확인**
+- Fiori: 고객 X의 기존 여행(예: 11/01~11/05)과 겹치는 기간(11/04~11/08)으로 새 여행을 만들고 저장 → 메시지 190이 날짜 필드에 붙고 저장이 막힙니다. 11/06~11/08로 바꾸면 저장됩니다.
+- 기존 여행 하나를 열어 설명만 바꾸고 저장 → 오류가 나지 않아야 합니다(자기 자신 제외).
+- 아래 EML 콘솔로 "같은 저장 안의 두 건"을 확인하세요.
+
+```abap
+    MODIFY ENTITIES OF zrap_r_travel_###
+      ENTITY Travel
+        CREATE FIELDS ( AgencyID CustomerID BeginDate EndDate Description )
+        WITH VALUE #( ( %cid = 'A' AgencyID = '070001' CustomerID = '000010'
+                        BeginDate = '20270301' EndDate = '20270310' Description = 'A' )
+                      ( %cid = 'B' AgencyID = '070001' CustomerID = '000010'
+                        BeginDate = '20270305' EndDate = '20270312' Description = 'B' ) )
+      FAILED DATA(failed) REPORTED DATA(reported).
+    COMMIT ENTITIES RESPONSE OF zrap_r_travel_###
+      FAILED DATA(commit_failed) REPORTED DATA(commit_reported).
+    out->write( |failed travels: { lines( commit_failed-travel ) }| ).   " 기대: 2
+```
+
+<details><summary>정답·해설</summary>
+
+BDEF(`ZRAP_R_TRAVEL_###`) 추가:
+
+```abap
+  validation validateOverlap on save { create; field CustomerID, BeginDate, EndDate; }
+
+  draft determine action Prepare
+  {
+    // ... 6단계까지 등록한 검증들은 그대로 두고 한 줄 추가
+    validation validateOverlap;
+  }
+```
+
+`lhc_travel` 선언과 state area 상수:
+
+```abap
+    METHODS validateOverlap FOR VALIDATE ON SAVE
+      IMPORTING keys FOR Travel~validateOverlap.
+
+    " state_area 구조에 한 줄 추가
+        overlap  TYPE string VALUE 'OVERLAP',
+```
+
+구현:
+
+```abap
+  METHOD validateOverlap.
+    TYPES: BEGIN OF ty_chk,
+             idx         TYPE i,
+             travel_id   TYPE /dmo/travel_id,
+             customer_id TYPE /dmo/customer_id,
+             begin_date  TYPE /dmo/begin_date,
+             end_date    TYPE /dmo/end_date,
+           END OF ty_chk.
+    DATA lt_chk TYPE STANDARD TABLE OF ty_chk WITH EMPTY KEY.
+
+    READ ENTITIES OF zrap_r_travel_### IN LOCAL MODE
+      ENTITY Travel
+        FIELDS ( TravelID CustomerID BeginDate EndDate OverallStatus )
+        WITH CORRESPONDING #( keys )
+      RESULT DATA(travels).
+
+    " 검사할 수 있는 것만 (다른 검증이 빈 값·거꾸로 된 기간을 이미 잡음)
+    LOOP AT travels INTO DATA(t)
+         WHERE CustomerID IS NOT INITIAL
+           AND BeginDate  IS NOT INITIAL
+           AND EndDate    IS NOT INITIAL
+           AND EndDate    >= BeginDate
+           AND OverallStatus <> travel_status-rejected.
+      APPEND VALUE #( idx = sy-tabix travel_id = t-TravelID customer_id = t-CustomerID
+                      begin_date = t-BeginDate end_date = t-EndDate ) TO lt_chk.
+    ENDLOOP.
+
+    LOOP AT travels INTO t.
+      APPEND VALUE #( %tky = t-%tky %state_area = state_area-overlap ) TO reported-travel.
+    ENDLOOP.
+    CHECK lt_chk IS NOT INITIAL.
+
+    " 1) 활성 테이블과 비교: 내부 테이블을 데이터 소스로 조인 (SQL 한 번)
+    SELECT FROM @lt_chk AS n
+           INNER JOIN zrap_atrav_### AS a
+             ON  a~customer_id = n~customer_id
+             AND a~begin_date <= n~end_date
+             AND a~end_date   >= n~begin_date
+             AND a~travel_id  <> n~travel_id
+      FIELDS n~idx, MIN( a~travel_id ) AS other_travel_id
+      WHERE a~overall_status <> @travel_status-rejected
+      GROUP BY n~idx
+      INTO TABLE @DATA(lt_hits).
+
+    " 2) 같은 저장 안의 다른 인스턴스끼리 비교 (작은 집합이라 ABAP에서)
+    LOOP AT lt_chk INTO DATA(c1).
+      LOOP AT lt_chk INTO DATA(c2) WHERE idx <> c1-idx AND customer_id = c1-customer_id.
+        IF c2-begin_date <= c1-end_date AND c2-end_date >= c1-begin_date
+           AND NOT line_exists( lt_hits[ idx = c1-idx ] ).
+          APPEND VALUE #( idx = c1-idx other_travel_id = c2-travel_id ) TO lt_hits.
+        ENDIF.
+      ENDLOOP.
+    ENDLOOP.
+
+    " 3) 결과 보고
+    LOOP AT lt_hits INTO DATA(hit).
+      DATA(travel) = travels[ hit-idx ].   " idx = travels의 행 번호(sy-tabix)
+      APPEND VALUE #( %tky = travel-%tky ) TO failed-travel.
+      APPEND VALUE #( %tky               = travel-%tky
+                      %state_area        = state_area-overlap
+                      %msg               = NEW zcm_rap_###( textid      = zcm_rap_###=>travel_overlap
+                                                            customer_id = travel-CustomerID
+                                                            travel_id   = hit-other_travel_id
+                                                            severity    = if_abap_behv_message=>severity-error )
+                      %element-BeginDate = if_abap_behv=>mk-on
+                      %element-EndDate   = if_abap_behv=>mk-on ) TO reported-travel.
+    ENDLOOP.
+  ENDMETHOD.
+```
+
+`ZCM_RAP_###` 상수:
+
+```abap
+      BEGIN OF travel_overlap,
+        msgid TYPE symsgid VALUE 'ZRAP_MSG_###',
+        msgno TYPE symsgno VALUE '190',
+        attr1 TYPE scx_attrname VALUE 'MV_CUSTOMER_ID',
+        attr2 TYPE scx_attrname VALUE 'MV_TRAVEL_ID',
+        attr3 TYPE scx_attrname VALUE '',
+        attr4 TYPE scx_attrname VALUE '',
+      END OF travel_overlap,
+```
+
+왜 이렇게 쓰나
+- **겹침 조건**: 두 기간 [s1, e1], [s2, e2]가 겹치는 조건은 `s2 <= e1 AND e2 >= s1` 하나입니다. "시작이 안에 있거나, 끝이 안에 있거나, 감싸거나"를 따로 쓰면 빠뜨리기 쉽습니다.
+- **루프 안 SELECT 대신 `FROM @lt_chk` 조인**: 검증은 한 번에 수백 건이 들어올 수 있습니다(대량 EML, 업로드). 내부 테이블을 DB로 보내 한 번에 조인하는 것이 `LOOP … SELECT`보다 훨씬 빠릅니다. 내부 테이블을 조인에 쓰는 기능은 비교적 최근 릴리스의 ABAP SQL 기능입니다(실제 시스템에서 확인 필요). 안 되면 `FOR ALL ENTRIES IN @lt_chk WHERE customer_id = @lt_chk-customer_id`로 고객별 후보를 읽고 ABAP에서 날짜를 비교하세요.
+- **`idx`를 둔 이유**: late numbering이라 새 Travel은 저장 전까지 `TravelID`가 비어 있습니다. 새 Travel이 여러 건이면 `travel_id`로는 어느 인스턴스인지 구분할 수 없어서, 결과를 되돌려 붙일 열쇠로 행 번호를 함께 보냈습니다. 같은 이유로 `a~travel_id <> n~travel_id`는 새 Travel(빈 번호)에 대해선 아무것도 빼지 않고, 수정 중인 기존 Travel에 대해서는 **자기 자신의 활성 버전**을 뺍니다.
+- **활성 테이블만 보는 한계**: 다른 사용자가 아직 저장하지 않은 draft와의 겹침은 잡지 못합니다. draft까지 막으려면 draft 테이블도 같이 조인해야 하지만, 남의 draft가 저장될지는 알 수 없으므로 보통은 활성 데이터 기준으로 검사하고 저장 시점에 다시 검사하는 지금 구조로 충분합니다.
+- **동시성**: 두 사용자가 동시에 겹치는 여행을 저장하면 둘 다 상대 것을 아직 못 봐서 둘 다 통과할 수 있습니다. 이걸 완전히 막으려면 고객 단위 잠금이나 DB 제약이 필요합니다. 검증은 "대부분을 막는 업무 규칙"이고 무결성 보장 장치는 아니라는 점을 해설로 정리해 두세요.
 
 </details>
 

@@ -1,6 +1,6 @@
 # RAP 실습 문제집 페이지 생성기 (탭 2개: RAP 실습 / 어노테이션 설명)
 # 입력: ../rap/R*.md (문제), ../rap/annotations.md (어노테이션)  출력: ../abap-drill.html
-# 문제 형식은 README "파일 형식" 참고: ## 단원 / ### R-01. 제목 [작성] ★★★ / #### 1단계. 제목 / <details> 정답
+# 문제 형식은 README "파일 형식" 참고: ## 단원 / ### R-01. 제목 [작성] ★★★(최대 ★★★★) / #### 1단계. 제목 / <details> 정답
 import re, html, markdown, os, glob
 from markdown.extensions.codehilite import CodeHiliteExtension
 D = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/'
@@ -78,7 +78,7 @@ def link_problems(h):
     return ''.join(parts)
 
 # ---------- 문제 ----------
-HEAD = re.compile(r'^(?P<id>R-\d+)\.\s*(?P<title>.*?)\s*\[(?P<type>[^\]]+)\]\s*(?P<stars>★{1,3})\s*$')
+HEAD = re.compile(r'^(?P<id>R-\d+)\.\s*(?P<title>.*?)\s*\[(?P<type>[^\]]+)\]\s*(?P<stars>★{1,4})\s*$')
 units = {}; order = []; sources = []
 for f in sorted(glob.glob(R + 'R*.md')):
     body, src = cut_sources(open(f, encoding='utf-8').read())
@@ -119,7 +119,7 @@ def step_html(p, k, s):
 <details class="ans"><summary>정답·해설</summary><div class="ans-body">{ah}</div></details></div></details>'''
 
 def card(p):
-    dots = ''.join('<i class="on"></i>' if k < p['diff'] else '<i></i>' for k in range(3))
+    dots = ''.join('<i class="on"></i>' if k < p['diff'] else '<i></i>' for k in range(max(3, p['diff'])))
     ih = post(render(p['intro']))
     steps = ''.join(step_html(p, k + 1, s) for k, s in enumerate(p['steps']))
     cov = ''
